@@ -28,13 +28,13 @@ jobs:
       - uses: actions/checkout@v7
 
       # macOS: exactly the local setup (BasicTeX, just, tex-fmt, Prettier, poppler from the Brewfile).
-      - name: Install dependencies (macOS, as `just deps` does locally)
+      - name: Install dependencies (macOS, with `just deps` as locally)
         if: runner.os == 'macOS'
         run: |
-          brew bundle
+          brew install just
           echo /Library/TeX/texbin >> "$GITHUB_PATH"
           export PATH="/Library/TeX/texbin:$PATH"
-          sudo tlmgr install $(grep -Ev '^\s*(#|$)' tex-packages.txt)
+          just deps
 
       # Linux: TeX Live's scheme-small is the same subset BasicTeX packages for macOS.
       - name: Cache TeX Live (Linux)

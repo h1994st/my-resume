@@ -12,6 +12,8 @@ default: build
 # Install Homebrew and TeX Live dependencies (tlmgr needs sudo)
 deps:
     brew bundle
+    # A fresh BasicTeX ships an older tlmgr, which refuses to install until it updates itself.
+    sudo tlmgr update --self
     sudo tlmgr install $(grep -Ev '^\s*(#|$)' tex-packages.txt)
 
 # List packages from tex-packages.txt that are not installed
