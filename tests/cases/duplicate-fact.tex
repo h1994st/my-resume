@@ -1,0 +1,6 @@
+% expect: error Duplicate honor key 'test-a'
+\documentclass{resume}
+\defhonor{test-a}{text = {A}, years = {2020}}
+\defhonor{test-a}{text = {B}, years = {2021}}
+\begin{document}
+\end{document}

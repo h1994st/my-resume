@@ -1,0 +1,32 @@
+{
+  "attribution": false,
+  "outputStyle": "Concise",
+  "permissions": {
+    "deny": ["Edit(Brewfile)"]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/protect-brewfile.sh"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/format.sh",
+            "statusMessage": "Formatting with just fmt"
+          }
+        ]
+      }
+    ]
+  }
+}

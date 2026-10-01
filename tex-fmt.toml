@@ -1,0 +1,6 @@
+# tex-fmt configuration (https://github.com/WGUNDERWOOD/tex-fmt)
+# No wrapping: one bullet per source line keeps diffs readable.
+wrap = false
+tabsize = 2
+# Environments whose \item lines are list items (indented like itemize).
+lists = ["role", "project"]

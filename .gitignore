@@ -1,0 +1,15 @@
+# LaTeX build intermediates (all builds go to build/ via `just build`)
+build/
+*.aux
+*.log
+*.out
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.xdv
+*.toc
+
+.DS_Store
+
+# PDFs are regenerated from source (just build); this also covers saved JD PDFs
+*.pdf

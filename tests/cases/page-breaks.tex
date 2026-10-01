@@ -1,0 +1,53 @@
+% expect: ok
+% expect-unstranded: 50
+\documentclass{resume}
+\defrole{test-r0}{title = {Role 0}, org = {Org}, start = 2020-01, end = present}
+\defrole{test-r1}{title = {Role 1}, org = {Org}, start = 2020-02, end = present}
+\defrole{test-r2}{title = {Role 2}, org = {Org}, start = 2020-03, end = present}
+\defrole{test-r3}{title = {Role 3}, org = {Org}, start = 2020-04, end = present}
+\defrole{test-r4}{title = {Role 4}, org = {Org}, start = 2020-05, end = present}
+\defrole{test-r5}{title = {Role 5}, org = {Org}, start = 2020-06, end = present}
+\defproject{test-p}{title = {Project}, start = 2020-01, end = present}
+\begin{document}
+\begin{summary}
+  Summary text that takes a little space.
+\end{summary}
+\begin{experience}
+  \begin{role}{test-r0}
+    \item Bullet text that is long enough to wrap onto a second line so the scan exercises multi-line bullets inside the spine
+    \item Bullet text that is long enough to wrap onto a second line so the scan exercises multi-line bullets inside the spine
+  \end{role}
+  \begin{role}{test-r1}
+    \item Bullet text that is long enough to wrap onto a second line so the scan exercises multi-line bullets inside the spine
+    \item Bullet text that is long enough to wrap onto a second line so the scan exercises multi-line bullets inside the spine
+    \item Bullet text that is long enough to wrap onto a second line so the scan exercises multi-line bullets inside the spine
+  \end{role}
+  \begin{role}{test-r2}
+    \item Bullet text that is long enough to wrap onto a second line so the scan exercises multi-line bullets inside the spine
+    \item Bullet text that is long enough to wrap onto a second line so the scan exercises multi-line bullets inside the spine
+    \item Bullet text that is long enough to wrap onto a second line so the scan exercises multi-line bullets inside the spine
+    \item Bullet text that is long enough to wrap onto a second line so the scan exercises multi-line bullets inside the spine
+  \end{role}
+  \begin{role}{test-r3}
+    \item Bullet text that is long enough to wrap onto a second line so the scan exercises multi-line bullets inside the spine
+    \item Bullet text that is long enough to wrap onto a second line so the scan exercises multi-line bullets inside the spine
+    \item Bullet text that is long enough to wrap onto a second line so the scan exercises multi-line bullets inside the spine
+    \item Bullet text that is long enough to wrap onto a second line so the scan exercises multi-line bullets inside the spine
+    \item Bullet text that is long enough to wrap onto a second line so the scan exercises multi-line bullets inside the spine
+  \end{role}
+  \begin{role}{test-r4}
+    \item Bullet text that is long enough to wrap onto a second line so the scan exercises multi-line bullets inside the spine
+    \item Bullet text that is long enough to wrap onto a second line so the scan exercises multi-line bullets inside the spine
+  \end{role}
+  \begin{role}{test-r5}
+    \item Bullet text that is long enough to wrap onto a second line so the scan exercises multi-line bullets inside the spine
+    \item Bullet text that is long enough to wrap onto a second line so the scan exercises multi-line bullets inside the spine
+    \item Bullet text that is long enough to wrap onto a second line so the scan exercises multi-line bullets inside the spine
+  \end{role}
+\end{experience}
+\begin{projects}
+  \begin{project}{test-p}
+    \item Bullet text that is long enough to wrap onto a second line so the scan exercises multi-line bullets inside the spine
+  \end{project}
+\end{projects}
+\end{document}

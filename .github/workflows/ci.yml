@@ -1,0 +1,104 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Test and build (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: 1
+      HOMEBREW_NO_INSTALL_CLEANUP: 1
+    steps:
+      - uses: actions/checkout@v7
+
+      # macOS: exactly the local setup (BasicTeX, just, tex-fmt, Prettier, poppler from the Brewfile).
+      - name: Install dependencies (macOS, as `just deps` does locally)
+        if: runner.os == 'macOS'
+        run: |
+          brew bundle
+          echo /Library/TeX/texbin >> "$GITHUB_PATH"
+          export PATH="/Library/TeX/texbin:$PATH"
+          sudo tlmgr install $(grep -Ev '^\s*(#|$)' tex-packages.txt)
+
+      # Linux: TeX Live's scheme-small is the same subset BasicTeX packages for macOS.
+      - name: Cache TeX Live (Linux)
+        if: runner.os == 'Linux'
+        id: texlive-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/texlive
+          key: texlive-${{ runner.os }}-${{ hashFiles('tex-packages.txt') }}
+
+      - name: Install TeX Live scheme-small (Linux)
+        if: runner.os == 'Linux' && steps.texlive-cache.outputs.cache-hit != 'true'
+        working-directory: ${{ runner.temp }}
+        run: |
+          curl -fsSL https://mirror.ctan.org/systems/texlive/tlnet/install-tl-unx.tar.gz | tar xz
+          cat > texlive.profile <<EOF
+          selected_scheme scheme-small
+          TEXDIR $HOME/texlive
+          TEXMFLOCAL $HOME/texlive/texmf-local
+          TEXMFSYSCONFIG $HOME/texlive/texmf-config
+          TEXMFSYSVAR $HOME/texlive/texmf-var
+          tlpdbopt_install_docfiles 0
+          tlpdbopt_install_srcfiles 0
+          tlpdbopt_autobackup 0
+          EOF
+          install-tl-*/install-tl --profile=texlive.profile
+          "$HOME"/texlive/bin/x86_64-linux/tlmgr install \
+            $(grep -Ev '^\s*(#|$)' "$GITHUB_WORKSPACE/tex-packages.txt")
+
+      - name: Install tools (Linux; versions match the Brewfile setup)
+        if: runner.os == 'Linux'
+        run: |
+          echo "$HOME/texlive/bin/x86_64-linux" >> "$GITHUB_PATH"
+          mkdir -p "$HOME/.local/bin"
+          curl -fsSL https://github.com/WGUNDERWOOD/tex-fmt/releases/download/v0.5.7/tex-fmt-x86_64-linux.tar.gz \
+            | tar xz -C "$HOME/.local/bin"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          npm install --global prettier@3.9.9
+          sudo apt-get update -qq && sudo apt-get install -y -qq poppler-utils
+
+      - name: Install just (Linux)
+        if: runner.os == 'Linux'
+        uses: extractions/setup-just@v4
+
+      - name: Check TeX packages
+        run: just deps-check
+
+      - name: Check formatting
+        run: just fmt-check
+
+      - name: Run template tests
+        run: just test
+
+      - name: Build and check every resume
+        run: |
+          just check
+          for dir in applications/*/; do just check "${dir%/}"; done
+
+      - name: Upload PDFs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: resumes-${{ runner.os }}
+          path: |
+            canonical/resume.pdf
+            applications/*/resume.pdf
+          if-no-files-found: warn

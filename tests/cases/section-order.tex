@@ -1,0 +1,18 @@
+% expect: ok
+% expect-order: Summary | Experience | Service | Honors & Awards
+\documentclass{resume}
+\defrole{test-role}{title = {Engineer}, org = {Org}, start = 2020-01, end = present}
+\defservice{test-service}{text = {Reviewer}, years = {2024}}
+\defhonor{test-honor}{text = {Award}, years = {2020}}
+\begin{document}
+\honors{test-honor}
+\service{test-service}
+\begin{experience}
+  \begin{role}{test-role}
+    \item Did things
+  \end{role}
+\end{experience}
+\begin{summary}
+  Summary text.
+\end{summary}
+\end{document}

@@ -1,0 +1,11 @@
+# TeX Live packages required on top of BasicTeX (see Brewfile).
+# One package per line; install with `just deps`, verify with `just deps-check`.
+
+# Build tool
+latexmk
+# List formatting for bullets (common/resume.cls)
+enumitem
+# Breakable left rule for the resume spine (common/resume.cls)
+framed
+# Dependency of hyperref under XeTeX (puenc-greek.def)
+greek-fontenc

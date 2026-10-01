@@ -1,0 +1,53 @@
+% expect: ok
+% expect-text: Engineer, Org, City, ST
+% expect-text: Jan 2020 – Present
+% expect-text: Aug 2018 – Dec 2019
+% expect-text: Solo Project
+% expect-text: github.com/example/tool (10+ stars)
+% expect-unwanted: https://
+% expect-text: Example University — B.S. in Testing
+% expect-text: Dissertation: On Tests
+% expect-text: Are Tests Ready Yet? Proc. of Testing 2020
+% expect-text: A Paper Title. Journal of Tests
+% expect-text: Ada Lovelace, Test Author, and André Weil Best Paper Award
+% expect-text: Top 5% of class
+% expect-text: Languages/Tools
+% expect-text: Security-focused
+% expect-text: Jan 2010 – Dec 2019
+\documentclass{resume}
+\defrole{test-role}{title = {Engineer}, org = {Org}, location = {City, ST}, start = 2020-01, end = present}
+\defrole{test-long}{title = {Distinguished Principal Staff Security Software Engineer and Technical Lead}, org = {A Very Long Organization Name Incorporated}, location = {Somewhere Far Away, ST}, start = 2010-01, end = 2019-12}
+\defproject{test-linked}{title = {Linked Tool}, link = {https://github.com/example/tool}, note = {10+ stars}, start = 2018-08, end = 2019-12}
+\defproject{test-solo}{title = {Solo Project}, start = 2018-08, end = 2019-12}
+\defdegree{test-phd}{school = {Example University}, location = {Testville}, degree = {Ph.D. in Testing}, start = 2015-09, end = 2020-05, dissertation = {On Tests}}
+\defdegree{test-bs}{school = {Example University}, degree = {B.S. in Testing}, start = 2011-09, end = 2015-06}
+\defpub{test-question}{title = {Are Tests Ready Yet?}, venue = {Proc. of Testing 2020}, authors = {Test Author}}
+\defpub{test-award}{title = {A Paper Title}, venue = {Journal of Tests}, authors = {Ada Lovelace, Test Author, and André Weil}, award = {Best Paper Award}}
+\defhonor{test-percent}{text = {Top 5\% of class}, years = {2013, 2014}}
+\name{Test Author}  % independent of common/profile.tex, so this case is shared verbatim
+\headline{}
+\begin{document}
+\begin{summary}
+  Summary text.
+  \skills{Languages/Tools}{C, Rust}
+\end{summary}
+\begin{experience}
+  \begin{role}{test-role}
+    \item Security-focused bullet
+  \end{role}
+  \begin{role}{test-long}
+    \item Long title bullet
+  \end{role}
+\end{experience}
+\begin{projects}
+  \begin{project}{test-linked}
+    \item Tool bullet
+  \end{project}
+  \begin{project}{test-solo}
+    \item Solo bullet
+  \end{project}
+\end{projects}
+\education[dissertation]
+\publications{test-question, test-award}
+\honors{test-percent}
+\end{document}

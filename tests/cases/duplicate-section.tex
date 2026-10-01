@@ -1,0 +1,7 @@
+% expect: error Section 'honors' is used more than once
+\documentclass{resume}
+\defhonor{test-a}{text = {A}, years = {2020}}
+\begin{document}
+\honors{test-a}
+\honors{test-a}
+\end{document}
