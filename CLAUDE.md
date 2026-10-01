@@ -107,8 +107,10 @@ docs/images/                     README screenshots of the sample persona (never
   Honors & Awards) regardless of source order; omit a section to drop it. Text outside the section
   environments and commands prints between the header and the first section, so keep all text inside
   sections.
-- Within a section, entries and listed keys print in source order; bullets print as written.
-- Dates in facts are `YYYY-MM` or `present`; the class formats them (`Aug 2024 – Present`).
+- Within a section, entries and listed keys print in source order, except publications, which print
+  newest first by their `date`; bullets print as written.
+- Dates in facts are `YYYY-MM` or `present`; the class formats them (`Aug 2024 – Present`). Every
+  publication needs a `date = YYYY-MM` (when it was published or presented), used only for sorting.
 
 ## Core rules
 
@@ -132,7 +134,9 @@ docs/images/                     README screenshots of the sample persona (never
 
 `just fmt` then `just check` must pass (and `just test` when `common/resume.cls` or `common/facts/`
 changed), then: no new overfull boxes or missing-font/character warnings, no unintended page-break
-changes (look at the PDF), and review `git diff`. A zero exit code alone is not enough.
+changes (look at the PDF), and review `git diff`. A zero exit code alone is not enough. `just check`
+also lists `Short line` wraps (a few words alone on a line); in a variant, reword them to save the
+line.
 
 ## Git
 

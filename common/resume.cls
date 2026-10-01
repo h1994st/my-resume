@@ -76,17 +76,18 @@
     \fi
   \endgroup}
 
-% Section heading: solid accent tab, then a rule to the right margin.
-\newcommand\resume@heading[1]{%
-  \resume@needspace{8\baselineskip}%
+% Section heading: solid accent tab, then a rule to the right margin. #1 is the space that
+% must be left on the page to start the section here (default 8 lines, for spine sections).
+\newcommand\resume@heading[2][8\baselineskip]{%
+  \resume@needspace{#1}%
   \addvspace{10.5pt}%
   \noindent
   \tikz[baseline=(t.base)]\node[fill=accent, text=white, rounded corners=1.5pt,
-    inner xsep=7.5pt, inner ysep=2pt, font=\resume@tabfont] (t) {#1};%
+    inner xsep=7.5pt, inner ysep=2pt, font=\resume@tabfont] (t) {#2};%
   {\color{accent}\leaders\hrule height 3.6pt depth -2.5pt\hfill}%
   \par\nobreak\vspace{5pt}}
 
-\newcommand\resume@section[2]{\resume@heading{#1}#2\par}
+\newcommand\resume@section[3][8\baselineskip]{\resume@heading[#1]{#2}#3\par}
 
 % Spine: a vertical line left of a section's entries; splits across pages.
 \newif\ifresume@inspine
@@ -133,14 +134,16 @@
   \ifx\resume@tmp\@empty\else\nobreak{\itshape\resume@tmp\par}\fi}
 
 % Publication: #1 number, #2 title with closing punctuation, #3 venue, #4 authors,
-% #5 award (may be empty).
+% #5 award (may be empty). The award follows the venue, where the line usually has room;
+% after a long author list it tends to wrap onto a line of its own.
 \newcommand\resume@pub[5]{%
   \par\ifnum#1>1 \vspace{3pt}\fi
   \protected@edef\resume@tmp{#5}%
   {\interlinepenalty=10000
    \noindent\hangindent=2em\hangafter=1
-   \makebox[2em][l]{\resume@smallfont\color{secondary}[#1]}#2 #3\newline #4%
-   \ifx\resume@tmp\@empty\else\ {\color{accent}\bfseries\itshape\resume@tmp}\fi\par}}
+   \makebox[2em][l]{\resume@smallfont\color{secondary}[#1]}#2 #3%
+   \ifx\resume@tmp\@empty\else\ {\color{accent}\bfseries\itshape\resume@tmp}\fi
+   \newline #4\par}}
 
 % One-line item with right-aligned years (service, honors).
 \newcommand\resume@line[2]{%
@@ -175,6 +178,7 @@
 \msg_new:nnn { resume } { missing-field }     { The~#1~'#2'~is~missing~required~field~'#3'. }
 \msg_new:nnn { resume } { unknown-field }     { The~#1~'#2'~has~unknown~field~'#3'. }
 \msg_new:nnn { resume } { missing-value }     { The~#1~'#2'~has~field~'#3'~without~a~value. }
+\msg_new:nnn { resume } { bad-pub-date }      { The~#1~'#2'~has~date~'#3';~use~YYYY-MM. }
 \msg_new:nnn { resume } { bad-date }          { The~#1~'#2'~has~date~'#3';~use~YYYY-MM~or~'present'. }
 \msg_new:nnn { resume } { duplicate-section } { Section~'#1'~is~used~more~than~once. }
 \msg_new:nnn { resume } { bad-option }
@@ -235,6 +239,11 @@
         \regex_match:nnF { \A ( \d{4} - ( 0[1-9] | 1[0-2] ) | present ) \Z } {#5}
           { \msg_error:nnnnn { resume } { bad-date } {#1} {#2} {#5} }
       }
+    \str_if_eq:nnT {#4} { date }
+      {
+        \regex_match:nnF { \A \d{4} - ( 0[1-9] | 1[0-2] ) \Z } {#5}
+          { \msg_error:nnnnn { resume } { bad-pub-date } {#1} {#2} {#5} }
+      }
     \prop_gput:cnn { g__resume_#1_#2_prop } {#4} {#5}
   }
 
@@ -256,7 +265,7 @@
 \NewDocumentCommand \defpub { m m }
   {
     \__resume_define:nnnnn { pub }
-      { title, venue, authors, award } { title, venue, authors } {#1} {#2}
+      { title, venue, authors, award, date } { title, venue, authors, date } {#1} {#2}
   }
 \NewDocumentCommand \defservice { m m }
   { \__resume_define:nnnnn { service } { text, years } { text, years } {#1} {#2} }
@@ -432,7 +441,7 @@
   {
     \clist_map_inline:nn {#1} { \__resume_require:nn { pub } {##1} }
     \__resume_store:nn { publications }
-      { \resume@section { Publications } { \__resume_publications:n {#1} } }
+      { \resume@section [ 3\baselineskip ] { Publications } { \__resume_publications:n {#1} } }
   }
 % Title followed by "." unless it already ends with . ? or !
 \cs_new:Npn \__resume_title_punct:n #1
@@ -443,10 +452,25 @@
       { . }
   }
 \cs_generate_variant:Nn \__resume_title_punct:n { e }
+% Publication date as a sortable number: 2021-08 -> 202108.
+\cs_new:Npn \__resume_pub_date:n #1
+  {
+    \exp_after:wN \__resume_date_number:w
+      \tex_expanded:D { \__resume_field:nnn { pub } {#1} { date } } \q_stop
+  }
+\cs_new:Npn \__resume_date_number:w #1 - #2 \q_stop { #1 #2 }
+\seq_new:N \l__resume_pubs_seq
+% Publications print newest first (by their date field), whatever the citation order.
 \cs_new_protected:Npn \__resume_publications:n #1
   {
     \int_zero:N \l__resume_n_int
-    \clist_map_inline:nn {#1}
+    \seq_set_from_clist:Nn \l__resume_pubs_seq {#1}
+    \seq_sort:Nn \l__resume_pubs_seq
+      {
+        \int_compare:nNnTF { \__resume_pub_date:n {##1} } < { \__resume_pub_date:n {##2} }
+          { \sort_return_swapped: } { \sort_return_same: }
+      }
+    \seq_map_inline:Nn \l__resume_pubs_seq
       {
         \int_incr:N \l__resume_n_int
         \resume@pub
@@ -472,13 +496,13 @@
   {
     \clist_map_inline:nn {#1} { \__resume_require:nn { service } {##1} }
     \__resume_store:nn { service }
-      { \resume@section { Service } { \__resume_lines:nn { service } {#1} } }
+      { \resume@section [ 3\baselineskip ] { Service } { \__resume_lines:nn { service } {#1} } }
   }
 \NewDocumentCommand \honors { m }
   {
     \clist_map_inline:nn {#1} { \__resume_require:nn { honor } {##1} }
     \__resume_store:nn { honors }
-      { \resume@section { Honors ~ \& ~ Awards } { \__resume_lines:nn { honor } {#1} } }
+      { \resume@section [ 3\baselineskip ] { Honors ~ \& ~ Awards } { \__resume_lines:nn { honor } {#1} } }
   }
 
 % --- Document start and end ----------------------------------------------------

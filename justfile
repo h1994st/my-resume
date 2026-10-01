@@ -46,6 +46,23 @@ check dir="canonical" pages="": (build dir)
     # TeX wraps long log lines (no added spaces), so join them before parsing the page count.
     actual=$(tr -d '\n' < "$log" | sed -nE 's/.*Output written on [^(]*\(([0-9]+) pages?.*/\1/p')
     grep -nE 'Overfull|Underfull|LaTeX( Font)? Warning|Package .* Warning|Missing character' "$log" || true
+    # Short lines: a wrap that leaves only a few words after a full line wastes a line; reword it.
+    pdftotext -layout "$dir/resume.pdf" - | awk '
+        function rtrim(s) { sub(/ +$/, "", s); return s }
+        { line[NR] = rtrim($0); if (length(line[NR]) > width) width = length(line[NR]) }
+        END {
+            page = 1
+            for (i = 2; i <= NR; i++) {
+                if (line[i] ~ /Page [0-9]+ of [0-9]+/) { page++; continue }
+                text = line[i]; sub(/^ +/, "", text)
+                if (text == "" || text ~ /^(•|\[[0-9]+\])/) continue
+                # Skip lines after entry titles (they end with a date) and right-aligned text.
+                if (line[i - 1] ~ /(Present|[0-9][0-9][0-9][0-9])$/) continue
+                if (length(line[i]) - length(text) >= 0.5 * width) continue
+                if (length(line[i - 1]) >= 0.8 * width && length(text) <= 0.3 * width)
+                    printf "Short line (page %d): %s\n", page, text
+            }
+        }'
     if [[ -n "{{pages}}" ]]; then
         # An explicit page count must match exactly.
         if [[ "$actual" != "{{pages}}" ]]; then

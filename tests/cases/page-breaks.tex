@@ -8,6 +8,13 @@
 \defrole{test-r4}{title = {Role 4}, org = {Org}, start = 2020-05, end = present}
 \defrole{test-r5}{title = {Role 5}, org = {Org}, start = 2020-06, end = present}
 \defproject{test-p}{title = {Project}, start = 2020-01, end = present}
+\defpub{test-pub0}{title = {Publication Title Number 0 That Wraps Onto a Second Line in the Layout}, venue = {Proc. of the Test Conference}, date = 2010-01, authors = {Author One, Author Two, and Author Three}}
+\defpub{test-pub1}{title = {Publication Title Number 1 That Wraps Onto a Second Line in the Layout}, venue = {Proc. of the Test Conference}, date = 2011-01, authors = {Author One, Author Two, and Author Three}}
+\defpub{test-pub2}{title = {Publication Title Number 2 That Wraps Onto a Second Line in the Layout}, venue = {Proc. of the Test Conference}, date = 2012-01, authors = {Author One, Author Two, and Author Three}}
+\defpub{test-pub3}{title = {Publication Title Number 3 That Wraps Onto a Second Line in the Layout}, venue = {Proc. of the Test Conference}, date = 2013-01, authors = {Author One, Author Two, and Author Three}}
+\defservice{test-s0}{text = {Service Item 0}, years = {2020}}
+\defservice{test-s1}{text = {Service Item 1}, years = {2020}}
+\defservice{test-s2}{text = {Service Item 2}, years = {2020}}
 \begin{document}
 \begin{summary}
   Summary text that takes a little space.
@@ -50,4 +57,6 @@
     \item Bullet text that is long enough to wrap onto a second line so the scan exercises multi-line bullets inside the spine
   \end{project}
 \end{projects}
+\publications{test-pub0, test-pub1, test-pub2, test-pub3}
+\service{test-s0, test-s1, test-s2}
 \end{document}

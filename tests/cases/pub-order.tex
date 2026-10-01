@@ -1,0 +1,10 @@
+% expect: ok
+% expect-order: Newest Author | Middle Author | Same Month Author | Oldest Author
+\documentclass{resume}
+\defpub{test-old}{title = {Old}, venue = {V}, date = 2015-03, authors = {Oldest Author}}
+\defpub{test-new}{title = {New}, venue = {V}, date = 2024-11, authors = {Newest Author}}
+\defpub{test-mid}{title = {Mid}, venue = {V}, date = 2019-06, authors = {Middle Author}}
+\defpub{test-tie}{title = {Tie}, venue = {V}, date = 2019-06, authors = {Same Month Author}}
+\begin{document}
+\publications{test-old, test-mid, test-new, test-tie}
+\end{document}

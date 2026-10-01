@@ -71,6 +71,10 @@ the summary and (optionally) `\headline{...}`.
 Run `just fmt <dir>/resume.tex` and `just check <dir>`. It must report 2 pages (or fewer) with no
 warning lines. If it is over length, cut or tighten content; do not shrink fonts or margins.
 
+For each `Short line` it reports (a wrap that leaves only a few words on a line), reword that bullet
+or skills row to save the line without changing its meaning, and re-run. Lines that come from shared
+facts (titles, venues, dissertations) can't be reworded in a variant; list them in the report.
+
 ## 7. Record and report
 
 - Fill `<dir>/notes.md`: Application, JD Signals, Resume Strategy, Major Changes from Canonical.

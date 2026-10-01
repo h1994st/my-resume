@@ -1,0 +1,6 @@
+% expect: error The pub 'test-pub' has date 'present'
+\documentclass{resume}
+\defpub{test-pub}{title = {T}, venue = {V}, date = present, authors = {A}}
+\begin{document}
+\publications{test-pub}
+\end{document}
