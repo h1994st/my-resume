@@ -348,6 +348,13 @@
 \tl_new:N \l__resume_link_tl
 \tl_new:N \l__resume_text_tl
 \tl_new:N \l__resume_note_tl
+\cs_new_protected:Npn \__resume_url_chars:N #1
+  {
+    \regex_replace_all:nnN { \cP\# } { \cO\# } #1
+    \regex_replace_all:nnN { \cD\_ } { \cO\_ } #1
+    \regex_replace_all:nnN { \cT\& } { \cO\& } #1
+    \regex_replace_all:nnN { \cA\~ } { \cO\~ } #1
+  }
 \cs_new_protected:Npn \__resume_project_subline:Nn #1 #2
   {
     \tl_clear:N #1
@@ -356,6 +363,10 @@
       {
         \tl_set_eq:NN \l__resume_text_tl \l__resume_link_tl
         \regex_replace_once:nnN { \A https?:// } { } \l__resume_text_tl
+        % Make URL characters such as _ # & ~ plain characters, so they print instead of acting
+        % as TeX syntax (\tl_to_str:N would double the #).
+        \__resume_url_chars:N \l__resume_link_tl
+        \__resume_url_chars:N \l__resume_text_tl
         \tl_set:Ne #1
           { \exp_not:N \href { \exp_not:V \l__resume_link_tl } { \exp_not:V \l__resume_text_tl } }
         \tl_set:Ne \l__resume_note_tl { \__resume_field:nnn { project } {#2} { note } }
