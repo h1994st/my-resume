@@ -593,8 +593,8 @@ a:hover {
   z-index: 1;
   background: linear-gradient(
     to bottom,
-    rgb(from var(--desk) r g b / 0) 0,
-    rgb(from var(--desk) r g b / 0.9) 56px,
+    color-mix(in srgb, var(--desk) 0%, transparent) 0,
+    color-mix(in srgb, var(--desk) 90%, transparent) 56px,
     var(--desk) 100%
   );
   pointer-events: none;
@@ -751,7 +751,16 @@ a:hover {
 .fc-seg[aria-current] .fc-fill {
   background: var(--pen-desk);
 }
-.fc-seg:hover .fc-bar,
+/* Hover only where a pointer can hover: on touch, :hover sticks after a tap. */
+@media (hover: hover) {
+  .fc-seg:hover .fc-bar {
+    height: 8px;
+    margin-top: -4px;
+  }
+  .fc-seg:hover .fc-tip {
+    opacity: 1;
+  }
+}
 .fc-seg:focus-visible .fc-bar {
   height: 8px;
   margin-top: -4px;
@@ -780,7 +789,6 @@ a:hover {
   right: 0;
   translate: none;
 }
-.fc-seg:hover .fc-tip,
 .fc-seg:focus-visible .fc-tip {
   opacity: 1;
 }

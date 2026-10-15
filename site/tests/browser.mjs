@@ -733,6 +733,41 @@ test("film: a tap on the controls doesn't keep them from fading", async ({ newPa
   });
 });
 
+test("film: a chapter's tooltip shows on hover and keyboard focus, not after a tap", async ({
+  newPage,
+}) => {
+  const opacity = () =>
+    getComputedStyle(document.querySelector('.fc-seg[data-scene="5"] .fc-tip')).opacity;
+  const shown = () =>
+    getComputedStyle(document.querySelector('.fc-seg[data-scene="5"] .fc-tip')).opacity === "1";
+  // A phone: a tap leaves :hover on the segment, and the tooltip would stay over the caption.
+  const phone = await newPage({ width: 390, height: 844, mobile: true, deviceScaleFactor: 2 });
+  await phone.goto("/");
+  await pausedFilm(phone);
+  const at = await phone.eval(() => {
+    const r = document.querySelector('.fc-seg[data-scene="5"]').getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  });
+  await phone.tap(at.x, at.y);
+  assert.equal(await phone.eval(() => window.__demo.film.scene), 4, "the tap jumped");
+  await sleep(400); // the tooltip fades in over 150 ms
+  await phone.screenshot("film-tooltip-after-tap-390x844");
+  assert.equal(await phone.eval(opacity), "0", "no tooltip after a tap");
+  // A mouse: hover shows it; keyboard focus shows it too.
+  const desk = await newPage();
+  await desk.goto("/");
+  await pausedFilm(desk);
+  const r = await desk.eval(() =>
+    document.querySelector('.fc-seg[data-scene="5"]').getBoundingClientRect().toJSON(),
+  );
+  await desk.mouse(r.left + r.width / 2, r.top + r.height / 2);
+  await desk.waitFor(shown, { timeout: 3000 });
+  await desk.mouse(5, 300);
+  await desk.eval(() => document.querySelector('.fc-seg[data-scene="4"]').focus());
+  await desk.key("Tab");
+  await desk.waitFor(shown, { timeout: 3000 });
+});
+
 test("film: a failing cue stops playback cleanly", async ({ newPage }) => {
   const page = await newPage();
   await page.goto("/");
@@ -1037,7 +1072,8 @@ test("film: every shot frames its target inside the free area at every size", as
   // Every step's shot, as its end frame shows it: the target in the free area; terminal text
   // at 12 px or more on screen; on phones, resume text in a shot on the replica at 11 px or
   // more (a zoom crops the line rather than shrink it); the notes the step writes in view; and
-  // the terminal card the shape of the camera's free area.
+  // the terminal card the shape of the camera's free area. And at every step's end, no note
+  // still on the desk cut by the film's edge.
   const PHONES = new Set(["390x844", "844x390"]);
   const problems = [];
   for (const [width, height] of SIZES) {
@@ -1050,11 +1086,7 @@ test("film: every shot frames its target inside the free area at every size", as
       const out = [];
       SCENES.forEach((scene, n) => {
         scene.steps.forEach((step, k) => {
-          if (!step.shot) return;
           film.renderStep(n, k);
-          const term = film.actor("term");
-          const resume = film.actor("resume");
-          const target = JSON.stringify(film.shot().target);
           const box = document.getElementById("film").getBoundingClientRect();
           const free = {
             left: box.left,
@@ -1062,11 +1094,28 @@ test("film: every shot frames its target inside the free area at every size", as
             top: box.top,
             bottom: document.querySelector(".film-caption").getBoundingClientRect().top,
           };
+          const at = `scene ${n + 1} step ${k + 1}`;
+          const onDesk = [...film.world.querySelectorAll(".pen-note")].map((el) => {
+            const r = el.getBoundingClientRect();
+            return {
+              text: el.textContent,
+              r: { left: r.left, right: r.right, top: r.top, bottom: r.bottom },
+            };
+          });
+          if (!step.shot) {
+            out.push({ at, free, box: box.toJSON(), onDesk });
+            return;
+          }
+          const term = film.actor("term");
+          const resume = film.actor("resume");
+          const target = JSON.stringify(film.shot().target);
           const a = film.camera.area();
           out.push({
-            at: `scene ${n + 1} step ${k + 1}`,
+            at,
             focus: film.focus(),
             free,
+            box: box.toJSON(),
+            onDesk,
             // The terminal's text on screen (px), for shots on the terminal card.
             termPx:
               target.includes('"term"') && term
@@ -1104,6 +1153,25 @@ test("film: every shot frames its target inside the free area at every size", as
     const size = `${width}x${height}`;
     for (const s of shots) {
       const at = `${width}×${height} ${s.at}`;
+      // Any note on the desk (left from an earlier step too): cut by the film's left, right, or
+      // top edge is a problem; one running under the caption is not (the scrim, from 56 px
+      // above the caption down, fades whatever lies there).
+      const scrim = s.free.bottom - 56;
+      for (const n of s.onDesk) {
+        const { left, right, top } = n.r;
+        if (top >= scrim || right <= s.box.left || left >= s.box.right || n.r.bottom <= s.box.top) {
+          continue; // under the caption, or off the film
+        }
+        const edges = [
+          left < s.free.left - 2 && "left",
+          right > s.free.right + 2 && "right",
+          top < s.free.top - 2 && "top",
+        ].filter(Boolean);
+        if (edges.length) {
+          problems.push(`${at}: note "${n.text}" cut at the film's ${edges.join(" and ")} edge`);
+        }
+      }
+      if (!s.focus) continue; // a step without a shot of its own
       if (!inside(s.focus, s.free)) problems.push(`${at}: focus outside the free area`);
       if (s.termPx !== null && s.termPx < 12) {
         problems.push(`${at}: terminal text ${s.termPx.toFixed(1)} px`);
@@ -1619,6 +1687,7 @@ const SIZES = [
   [844, 390], // a phone in landscape
   [1024, 1366], // a tablet held upright
   [1280, 720],
+  [1366, 1024], // a tablet on its side
   [1920, 1080],
   [2560, 1440],
 ];
@@ -2407,6 +2476,43 @@ test("theme: a stored theme applies before the first paint", async ({ newPage })
       assert.deepEqual([frame.theme, frame.desk], [stored, desk], "first frame");
       const load = paint.find((p) => p.when === "load");
       assert.deepEqual([load.theme, load.desk], [stored, desk], "at load");
+    } finally {
+      await forgetTheme(page);
+      await page.close();
+    }
+  }
+});
+
+test("theme: the toggle shows the theme on screen before main.js runs", async ({ newPage }) => {
+  for (const [system, stored, pressed] of [
+    ["dark", null, "true"],
+    ["light", null, "false"],
+    ["light", "dark", "true"],
+    ["dark", "light", "false"],
+  ]) {
+    const page = await newPage({ media: scheme(system) });
+    await page.goto("/");
+    await page.eval(
+      (t) => (t ? localStorage.setItem("theme", t) : localStorage.removeItem("theme")),
+      stored,
+    );
+    try {
+      // main.js (theme.js) never loads: only the page's inline scripts run.
+      await page.send("Fetch.enable", { patterns: [{ urlPattern: "*/main.js" }] });
+      const off = page.cdp.on((msg) => {
+        if (msg.sessionId !== page.sessionId || msg.method !== "Fetch.requestPaused") return;
+        page.send("Fetch.failRequest", {
+          requestId: msg.params.requestId,
+          errorReason: "BlockedByClient",
+        });
+      });
+      await page.goto("/", { waitForDemo: false });
+      off();
+      const got = await page.eval(() => ({
+        demo: Boolean(window.__demo),
+        pressed: document.getElementById("theme-toggle").getAttribute("aria-pressed"),
+      }));
+      assert.deepEqual(got, { demo: false, pressed }, `system ${system}, stored ${stored}`);
     } finally {
       await forgetTheme(page);
       await page.close();

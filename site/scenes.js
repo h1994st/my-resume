@@ -858,7 +858,7 @@ const REAL_NOTE = { x: -590, y: 160, w: 540, h: 160 };
 // A phone held upright crops a zoom to the start of the lines: its notes go on the desk above
 // the page, in the cropped column.
 const DOG_NOTE = { x: -560, y: 290, w: 380, h: 130 }; // above Duna, level with the bullets
-const DOG_NOTE_PORTRAIT = { x: 70, y: -200, w: 360, h: 130 };
+const DOG_NOTE_PORTRAIT = { x: 70, y: -190, w: 360, h: 130 };
 const REAL_NOTE_PORTRAIT = { x: 30, y: -210, w: 540, h: 160 };
 const UP_NOTE_PORTRAIT = { x: 110, y: -150, w: 240, h: 80 };
 // The least scale of a zoom on the replica's lines (14 px text → 11.5 px on screen).
@@ -1055,6 +1055,8 @@ export const SCENES = [
             id: "complete",
             text: "one complete resume",
             at: { x: 520, y: -160 },
+            // Upright: under page 1, inside the pull-back and off the push onto the role.
+            portrait: { at: { x: 120, y: 1110 } },
             size: 80,
             rotate: -1.5,
           },
@@ -1562,7 +1564,8 @@ export const SCENES = [
         shot: {
           target: [STAMP_AREA, NANGNANG],
           grow: { top: 20, left: 20, right: 140 }, // and clear of Duna, left of the page
-          context: ["resume", NANGNANG],
+          // When legible, the whole page, Nangnang, and the note left of it (no note cut).
+          context: ["resume", NANGNANG, REAL_NOTE],
           legible: 0.45,
           // Upright phone: from the page's left edge to the stamp; Nangnang sits below it.
           portrait: {

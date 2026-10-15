@@ -43,6 +43,16 @@
         </svg>
         <span>Dark</span><span class="visually-hidden"> theme</span>
       </button>
+      <script>
+        // The toggle's state from the first paint (theme.js keeps it up to date).
+        {
+          const system = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+          const theme = document.documentElement.dataset.theme ?? system;
+          document
+            .getElementById("theme-toggle")
+            .setAttribute("aria-pressed", String(theme === "dark"));
+        }
+      </script>
     </header>
 
     <section

@@ -2,7 +2,8 @@
 // the header toggle; the choice is kept in localStorage["theme"] and set as
 // <html data-theme="light|dark"> (style.css redefines its tokens for it). With nothing stored,
 // data-theme stays unset and the system setting wins. The inline script in index.html's <head>
-// applies a stored choice before the first paint; this module wires the toggle.
+// applies a stored choice before the first paint, and the one after the toggle sets its
+// aria-pressed; this module wires the toggle.
 //
 // initTheme({ onChange }) → { theme() } wires #theme-toggle: a button named "Dark theme" whose
 // aria-pressed is true while the dark theme shows (the name stays the same; the state is in
