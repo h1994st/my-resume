@@ -207,7 +207,7 @@ const submit = [
       {
         t: "out",
         tone: "dim",
-        text: "# git checkout <tag> && just build <dir> rebuilds exactly what was sent",
+        text: "# git checkout <tag> && just build <dir> rebuilds what was sent (with the same TeX Live)",
       },
     ],
     resume: { state: "granary" },
