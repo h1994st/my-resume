@@ -1376,6 +1376,13 @@ test("kit: the three cats in every pose and every pen mark, in both themes", asy
     assert.ok(desk.length >= 1 && paper.length >= 1, "notes on the desk and on paper");
     for (const n of desk) assert.equal(n.color, PEN.desk[theme], `desk note colour in ${theme}`);
     for (const n of paper) assert.equal(n.color, PEN.paper, "paper note colour");
+    // A note anchored to the paper but written on the desk takes the desk's ink.
+    const anchored = k.notes.find((n) => n.text.startsWith("which one is true?"));
+    assert.deepEqual(
+      [anchored?.ink, anchored?.color],
+      ["desk", PEN.desk[theme]],
+      `desk note anchored to paper in ${theme}`,
+    );
     for (const n of k.notes) assert.match(n.font, /^"?Caveat"?/, "notes in Caveat");
     assert.ok(k.caveat, "Caveat 400 and 600 loaded");
     assert.ok(

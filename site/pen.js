@@ -12,7 +12,8 @@
 // Options: layer (the positioned element the mark is placed in; default: the target's closest
 // [data-pen-layer], else its offset parent, else <body>), signal (an AbortSignal: aborting stops
 // the drawing, removes the mark, and rejects with the signal's reason), ink ("paper" or "desk";
-// default: "paper" inside a [data-paper] element), duration (ms). Marks also take pad, seed (the
+// default: "paper" inside a [data-paper] element: for a note, the layer it is written in; for a
+// mark, its target element, else its layer), duration (ms). Marks also take pad, seed (the
 // hand-drawn wobble is seeded, so the same call draws the same mark), and for arrows `from` (a
 // point in layer units). Notes take size (px, default 26), rotate (deg, default -2), and weight.
 // Coordinates are in the layer's own units: a scaled layer (the film's world) is measured
@@ -30,10 +31,9 @@ function layerFor(target, layer) {
   return document.body;
 }
 
-function inkFor(target, layer, ink) {
-  if (ink) return ink;
-  const el = target instanceof Element ? target : layer;
-  return el.closest("[data-paper]") ? "paper" : "desk";
+// "paper" when `on` is inside a [data-paper] element, else "desk".
+function inkFor(on, ink) {
+  return ink ?? (on.closest("[data-paper]") ? "paper" : "desk");
 }
 
 // The target's box in the layer's unscaled coordinates.
@@ -187,7 +187,8 @@ function buildMark(target, kind, opts) {
   svg.setAttribute("aria-hidden", "true");
   svg.setAttribute("viewBox", `${f(x0)} ${f(y0)} ${f(x1 - x0)} ${f(y1 - y0)}`);
   svg.dataset.kind = kind;
-  svg.dataset.ink = inkFor(target, layer, opts.ink);
+  // A mark lies over its target, so an element target decides; a rect goes by the layer.
+  svg.dataset.ink = inkFor(target instanceof Element ? target : layer, opts.ink);
   Object.assign(svg.style, {
     left: `${f(x0)}px`,
     top: `${f(y0)}px`,
@@ -261,7 +262,9 @@ function buildNote(text, at, opts) {
   const layer = layerFor(anchor ?? at, opts.layer);
   const note = document.createElement("p");
   note.className = "pen-note";
-  note.dataset.ink = inkFor(anchor ?? at, layer, opts.ink);
+  // A note lies where it is written: the layer decides, not the anchor (a note beside the paper
+  // is on the desk).
+  note.dataset.ink = inkFor(layer, opts.ink);
   note.style.fontSize = `${size}px`;
   note.style.fontWeight = String(weight);
   note.style.rotate = `${rotate}deg`;
