@@ -112,6 +112,43 @@ new ResizeObserver(() => fit()).observe(stage);
 stacked.addEventListener("change", () => fit());
 
 const events = [];
+
+// analytics.js, loaded after the stage's first paint; events before it wait in `early`.
+let analytics;
+const early = [];
+function track(name, params) {
+  if (analytics) analytics.track(name, params);
+  else if (early.length < 16) early.push([name, params]);
+}
+
+// The player's events as analytics sees them: the first interaction, each act once, completion once.
+let began = false;
+const actsSeen = new Set();
+let completed = false;
+function report(name, params) {
+  if (name === "interact" && !began) {
+    began = true;
+    track("tutorial_begin", { method: params.method });
+  } else if (name === "act" && !actsSeen.has(params.act)) {
+    actsSeen.add(params.act);
+    track("demo_act", { act: params.act, act_name: params.act_name });
+  } else if (name === "complete" && !completed) {
+    completed = true;
+    track("tutorial_complete", { method: params.method });
+  }
+}
+
+async function loadAnalytics() {
+  try {
+    const module = await import("./analytics.js");
+    module.start(location);
+    analytics = module;
+    for (const [name, params] of early.splice(0)) analytics.track(name, params);
+  } catch {
+    // Analytics never stops the demo.
+  }
+}
+
 const player = createPlayer({
   acts: ACTS,
   terminal,
@@ -120,8 +157,11 @@ const player = createPlayer({
   controls: document.getElementById("controls"),
   onEvent(name, params) {
     events.push({ name, params });
+    report(name, params);
   },
 });
 fit();
 
 window.__demo = { player, resume, events };
+
+requestAnimationFrame(() => requestAnimationFrame(loadAnalytics));

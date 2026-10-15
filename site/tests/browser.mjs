@@ -966,4 +966,114 @@ test("a swipe on the control bar does not step the demo", async ({ newPage }) =>
   assert.equal(await page.eval(() => window.__demo.player.step), before + 1, "terminal swipe");
 });
 
+// --- Analytics -------------------------------------------------------------------------------
+
+const dataLayer = (page) =>
+  page.eval(() => (window.dataLayer ? window.dataLayer.map((c) => Array.from(c)) : null));
+
+test("analytics: debug mode fills dataLayer with config and the three demo events", async ({
+  newPage,
+}) => {
+  const page = await newPage();
+  await page.goto("/?analytics=debug");
+  await page.eval(() => window.__demo.player.pause());
+  await page.waitFor(() => window.dataLayer?.some((c) => c[0] === "config"));
+  await page.key("ArrowRight");
+  await page.eval(() => document.querySelector('.ctl-act[data-act="3"]').click());
+  await page.eval(() => {
+    const { player } = window.__demo;
+    while (player.step < player.stepCount - 1) player.next();
+  });
+  const acts = await page.eval(() => [
+    ...new Set(window.__demo.events.filter((e) => e.name === "act").map((e) => e.params.act)),
+  ]);
+  const commands = (await dataLayer(page)).map(([cmd, a, b]) => [cmd, a, b]);
+  assert.equal(commands[0][0], "js");
+  assert.equal(commands[1][0], "config");
+  assert.equal(commands[1][1], "G-ZMH6NLL7C7");
+  assert.deepEqual(commands[1][2], { content_group: "my-resume" });
+  const events = commands.slice(2);
+  assert.ok(
+    events.every(([cmd]) => cmd === "event"),
+    "only event commands after config",
+  );
+  assert.ok(!events.some(([, name]) => name === "page_view"), "no manual page_view");
+  assert.deepEqual(
+    events.filter(([, n]) => n === "tutorial_begin"),
+    [["event", "tutorial_begin", { method: "key" }]],
+  );
+  const shown = events.filter(([, n]) => n === "demo_act").map(([, , p]) => p.act);
+  assert.deepEqual(shown, acts, "demo_act once per act, in order");
+  assert.ok([1, 3, 4, 5].every((a) => shown.includes(a)), `acts reached: ${shown}`);
+  assert.deepEqual(
+    events.filter(([, n]) => n === "tutorial_complete"),
+    [["event", "tutorial_complete", { method: "manual" }]],
+  );
+  assert.deepEqual(
+    [...new Set(events.map(([, n]) => n))].sort(),
+    ["demo_act", "tutorial_begin", "tutorial_complete"],
+  );
+  assert.equal(
+    await page.eval(() => document.querySelectorAll('script[src*="googletagmanager"]').length),
+    0,
+    "debug mode loads no Google script",
+  );
+});
+
+test("analytics: off the site (127.0.0.1) nothing is set up or loaded", async ({ newPage }) => {
+  const page = await newPage();
+  await page.goto("/");
+  await page.frames(4);
+  await page.eval(() => window.__demo.player.next());
+  assert.equal(await dataLayer(page), null);
+  assert.equal(await page.eval(() => typeof window.gtag), "undefined");
+  assert.equal(
+    await page.eval(() => document.querySelectorAll('script[src*="googletagmanager"]').length),
+    0,
+  );
+});
+
+test("analytics: a throwing gtag does not stop the demo", async ({ newPage }) => {
+  const page = await newPage();
+  await page.goto("/?analytics=debug");
+  await page.eval(() => window.__demo.player.pause());
+  await page.waitFor(() => window.dataLayer?.some((c) => c[0] === "config"));
+  await page.eval(() => {
+    window.gtag = () => {
+      throw new Error("gtag broke");
+    };
+  });
+  await page.eval(() => {
+    const { player } = window.__demo;
+    while (player.step < player.stepCount - 1) player.next();
+  });
+  assert.equal(
+    await page.eval(() => window.__demo.player.step === window.__demo.player.stepCount - 1),
+    true,
+  );
+});
+
+test("no absolute script, stylesheet, or media URLs except Google's gtag", async ({ newPage }) => {
+  const page = await newPage();
+  await page.goto("/");
+  const urls = await page.eval(() =>
+    [...document.querySelectorAll("script[src], link[href], img[src], source[src], iframe[src]")]
+      .map((el) => el.getAttribute("src") ?? el.getAttribute("href"))
+      .filter((u) => /^(https?:)?\/\//.test(u)),
+  );
+  assert.deepEqual(urls, []);
+  for (const file of ["main.js", "analytics.js", "player.js", "style.css"]) {
+    const text = readFileSync(path.join(SITE, file), "utf8");
+    const found = [...text.matchAll(/https?:\/\/[^\s"'`)]+/g)].map((m) => m[0]);
+    for (const u of found) {
+      assert.ok(
+        u.startsWith("https://www.googletagmanager.com/gtag/js") || /w3\.org/.test(u),
+        `${file}: unexpected absolute URL ${u}`,
+      );
+    }
+  }
+  const js = readFileSync(path.join(SITE, "analytics.js"), "utf8");
+  assert.ok(js.includes("https://www.googletagmanager.com/gtag/js"));
+});
+
 await main();
