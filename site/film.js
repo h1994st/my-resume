@@ -78,15 +78,17 @@
 //
 // ## Viewer
 //
-// The film autoplays the first time it fills half the viewport (or half of itself). Keys: Space
-// (play/pause), ←/→ (scenes), 1–9 (scene N), only while the film is in view and focus is on the
-// page body or inside the film. Touch or pen swipes step, except from the controls or from
-// [data-no-swipe]. The controls (play/pause, prev/next, one chapter segment per scene, a
-// "replay" label) fade after 2.5 s without pointer movement while playing, and come back on
-// pointer movement, touch, keys, or focus; they stay while paused, with reduced motion, while
-// keyboard focus is in them, or while the pointer is over them. The caption and the world are
-// aria-hidden: a visually hidden transcript lists every scene, and a polite live region names
-// each scene as it starts.
+// The film autoplays the first time it fills half the viewport (or half of itself). Playback
+// pauses while the film is out of view by that rule or the tab is hidden, and goes on when both
+// are back, unless the viewer paused or jumped meanwhile. Keys: Space (play/pause), ←/→
+// (scenes), 1–9 (scene N), only while the film is in view and focus is on the page body or
+// inside the film. Touch or pen swipes step,
+// except from the controls or from [data-no-swipe]. The controls (play/pause, prev/next, one
+// chapter segment per scene, a "replay" label) fade after 2.5 s without pointer movement while
+// playing, and come back on pointer movement, touch, keys, or focus; they stay while paused,
+// with reduced motion, while keyboard focus is in them, or while the pointer is over them. The
+// caption and the world are aria-hidden: a visually hidden transcript lists every scene, and a
+// polite live region names each scene as it starts.
 //
 // onEvent(name, params): "interact" { method: play|step|chapter|key|swipe } on each user action,
 // "act" { act, act_name } each time a scene is entered, "complete" { method: autoplay|manual }
@@ -514,6 +516,7 @@ export function createFilm({ scenes, cues, actors, root, onEvent = () => {} }) {
   let run = null;
   let announced = null;
   let interacted = false;
+  let held = false; // paused for being out of view or in a hidden tab (not by the viewer)
 
   const after = ({ scene, step }) =>
     step < lastStep(scene)
@@ -586,6 +589,7 @@ export function createFilm({ scenes, cues, actors, root, onEvent = () => {} }) {
 
   function goTo(n, opts) {
     const target = Math.max(0, Math.min(lastScene, n));
+    held = false;
     abort();
     playing = false;
     animating = null;
@@ -595,6 +599,7 @@ export function createFilm({ scenes, cues, actors, root, onEvent = () => {} }) {
   }
 
   function play() {
+    held = false;
     if (playing) return;
     if (!cursor) goTo(0); // replay from the start
     playing = true;
@@ -603,6 +608,7 @@ export function createFilm({ scenes, cues, actors, root, onEvent = () => {} }) {
   }
 
   function pause() {
+    held = false;
     if (!playing) return;
     const inflight = animating;
     abort();
@@ -689,19 +695,36 @@ export function createFilm({ scenes, cues, actors, root, onEvent = () => {} }) {
     return covers(Math.min(r.bottom, innerHeight) - Math.max(r.top, 0), r.height, innerHeight);
   };
   let seen = false;
+  let visible = false; // in view by the observer's last look
+  // Out of view or in a hidden tab, playback holds; back in view, a held film goes on.
+  function hold() {
+    const watched = visible && !document.hidden;
+    if (!watched && playing) {
+      pause();
+      held = true;
+    } else if (watched && held) {
+      play();
+    }
+  }
   const io = new IntersectionObserver(
     ([entry]) => {
       const vh = entry.rootBounds?.height ?? innerHeight;
-      const shownNow =
+      visible =
         entry.isIntersecting &&
         covers(entry.intersectionRect.height, entry.boundingClientRect.height, vh);
-      if (shownNow && !seen) {
+      if (visible && !seen) {
         seen = true;
-        if (!reduced.matches && !interacted && !playing) play();
+        // Autoplay; in a hidden tab, held until it shows.
+        if (!reduced.matches && !interacted && !playing) {
+          if (document.hidden) held = true;
+          else play();
+        }
       }
+      hold();
     },
     { threshold: Array.from({ length: 21 }, (_, k) => k / 20) },
   );
+  document.addEventListener("visibilitychange", hold);
 
   document.addEventListener("keydown", (e) => {
     if (!isReady) return;

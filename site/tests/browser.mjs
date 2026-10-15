@@ -310,6 +310,18 @@ class Page {
     return this.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
   }
 
+  // A real left click on the middle of the element `selector` matches (it takes focus).
+  async click(selector) {
+    const { x, y } = await this.eval((sel) => {
+      const r = document.querySelector(sel).getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    }, selector);
+    await this.mouse(x, y);
+    const press = { x, y, button: "left", clickCount: 1 };
+    await this.send("Input.dispatchMouseEvent", { type: "mousePressed", ...press });
+    await this.send("Input.dispatchMouseEvent", { type: "mouseReleased", ...press });
+  }
+
   // A touch swipe from (x0, y0) to (x1, y1) in CSS px.
   async swipe(x0, y0, x1, y1, steps = 8) {
     const point = (x, y) => [{ x, y, id: 1 }];
@@ -1358,6 +1370,90 @@ test("film: keys work only in view and with focus on the page or the film", asyn
   await page.key("ArrowRight");
   await page.key("1");
   assert.equal(await page.eval(() => window.__demo.film.scene), 1, "keys ignored");
+});
+
+// Resolves once an IntersectionObserver made now sees the film `visible` (in view: at least half
+// of it on screen; else less than half). The film's own observer, made earlier, gets each update
+// first, so by then it has seen the same thing.
+const filmSeen = (page, visible) =>
+  page.eval(
+    (want) =>
+      new Promise((resolve) => {
+        const io = new IntersectionObserver(
+          ([e]) => {
+            if (e.intersectionRatio >= 0.5 === want) {
+              io.disconnect();
+              resolve(true);
+            }
+          },
+          { threshold: Array.from({ length: 21 }, (_, k) => k / 20) },
+        );
+        io.observe(document.getElementById("film"));
+      }),
+    visible,
+  );
+
+test("film: playback pauses out of view or in a hidden tab, and resumes when back", async ({
+  newPage,
+}) => {
+  const page = await newPage();
+  await page.animationSpeed(8);
+  await page.goto("/?speed=8");
+  await page.waitFor(() => window.__demo.film.playing);
+  await page.eval(() => {
+    const spacer = document.createElement("div");
+    spacer.style.height = "4000px";
+    document.body.append(spacer);
+  });
+  const state = () =>
+    page.eval(() => ({
+      playing: window.__demo.film.playing,
+      acts: window.__demo.events.filter((e) => e.name === "act" || e.name === "complete").length,
+      live: document.querySelector("[data-film-live]").textContent,
+    }));
+  const away = async () => {
+    await page.eval(() => {
+      const film = document.getElementById("film");
+      scrollTo(0, film.offsetTop + film.offsetHeight + 200);
+    });
+    await filmSeen(page, false);
+  };
+  const back = async () => {
+    await page.eval(() => scrollTo(0, 0));
+    await filmSeen(page, true);
+  };
+  const hide = (hidden) =>
+    page.eval((h) => {
+      Object.defineProperty(document, "hidden", { configurable: true, get: () => h });
+      document.dispatchEvent(new Event("visibilitychange"));
+    }, hidden);
+
+  // Out of view: paused, and no more scenes start (no demo_act, nothing announced).
+  await away();
+  const out = await state();
+  assert.equal(out.playing, false, "paused out of view");
+  await sleep(2000); // 16 s of film at ?speed=8: a few scenes, had it gone on
+  assert.deepEqual(await state(), out, "nothing happens out of view");
+  // Back in view: it goes on.
+  await back();
+  assert.equal((await state()).playing, true, "resumes in view");
+  // A hidden tab pauses it too; showing the tab again resumes it.
+  await hide(true);
+  const hidden = await state();
+  assert.equal(hidden.playing, false, "paused in a hidden tab");
+  await sleep(1000);
+  assert.deepEqual(await state(), hidden, "nothing happens in a hidden tab");
+  await hide(false);
+  assert.equal((await state()).playing, true, "resumes when the tab shows");
+  // Paused by the viewer: it stays paused, out of view and back, hidden and shown.
+  await page.click('[data-ctl="play"]');
+  assert.equal((await state()).playing, false, "the viewer paused it");
+  await away();
+  await back();
+  await hide(true);
+  await hide(false);
+  await page.frames(2);
+  assert.equal((await state()).playing, false, "a paused film stays paused");
 });
 
 test("film: controls, swipes, and events", async ({ newPage }) => {
