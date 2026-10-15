@@ -101,68 +101,242 @@
         </div>
 
         <p class="prose">What to notice, from the top of a page down:</p>
+        <!-- Close-ups crop the real page 1 (data-crop, in PDF points); the pen marks data-mark on
+             it. The browser tests check each mark against the PDF's own word boxes. -->
         <ol class="tour">
           <li>
-            <h3>Section tabs</h3>
-            <p>
-              Each section opens with a graphite tab and a rule to the margin. Sections always print
-              in the same order (Summary, Experience, Projects, Education, Publications, Service,
-              Honors &amp; Awards), whatever the order in the source; leave one out to drop it.
-            </p>
+            <div class="tour-text">
+              <h3>Section tabs</h3>
+              <p>
+                Each section opens with a graphite tab and a rule to the margin. Sections always
+                print in the same order (Summary, Experience, Projects, Education, Publications,
+                Service, Honors &amp; Awards), whatever the order in the source; leave one out to
+                drop it.
+              </p>
+            </div>
+            <figure
+              class="closeup is-line"
+              data-pen-group
+              data-crop="24 214.5 312 28"
+              data-mark="circle 43.25 222.75 71.25 14.25"
+              data-expect="Experience"
+              style="--x: 24; --y: 214.5; --w: 312; --h: 28"
+            >
+              <div class="closeup-paper" data-paper data-pen-layer>
+                <div class="closeup-crop">
+                  <img
+                    src="img/canonical-1.png"
+                    alt="Close-up of page 1: the Experience tab"
+                    width="935"
+                    height="1210"
+                    loading="lazy"
+                  />
+                </div>
+              </div>
+            </figure>
           </li>
           <li>
-            <h3>A timeline spine</h3>
-            <p>
-              Roles and projects hang off one line, a ring for each entry, and the line keeps going
-              across a page break.
-            </p>
+            <div class="tour-text">
+              <h3>A timeline spine</h3>
+              <p>
+                Roles and projects hang off one line, a ring for each entry, and the line keeps
+                going across a page break.
+              </p>
+            </div>
+            <figure
+              class="closeup"
+              data-pen-group
+              data-crop="28 238 248 134"
+              data-mark="circle 43.5 247 8 116"
+              data-pad="4"
+              data-expect="spine"
+              style="--x: 28; --y: 238; --w: 248; --h: 134"
+            >
+              <div class="closeup-paper" data-paper data-pen-layer>
+                <div class="closeup-crop">
+                  <img
+                    src="img/canonical-1.png"
+                    alt="Close-up of page 1: the spine beside two roles"
+                    width="935"
+                    height="1210"
+                    loading="lazy"
+                  />
+                </div>
+              </div>
+            </figure>
           </li>
           <li>
-            <h3>Date pills</h3>
-            <p>
-              Dates are written once as <code>2023-04</code> or <code>present</code>; the class
-              prints them as <span class="pill">Apr 2023 – Present</span>.
-            </p>
+            <div class="tour-text">
+              <h3>Date pills</h3>
+              <p>
+                Dates are written once as <code>2023-04</code> or <code>present</code>; the class
+                prints them as <span class="pill">Apr 2023 – Present</span>.
+              </p>
+            </div>
+            <figure
+              class="closeup is-line"
+              data-pen-group
+              data-crop="293 239 283 19.5"
+              data-mark="circle 482 246 86 11.5"
+              data-expect="Apr 2023 – Present"
+              style="--x: 293; --y: 239; --w: 283; --h: 19.5"
+            >
+              <div class="closeup-paper" data-paper data-pen-layer>
+                <div class="closeup-crop">
+                  <img
+                    src="img/canonical-1.png"
+                    alt="Close-up of page 1: the date pill Apr 2023 – Present"
+                    width="935"
+                    height="1210"
+                    loading="lazy"
+                  />
+                </div>
+              </div>
+            </figure>
           </li>
           <li>
-            <h3>Facts cited by key</h3>
-            <p>
-              A role's title, employer, place, and dates are defined once in
-              <code>common/facts/</code> and cited by key, so every variant prints them the same
-              way.
-            </p>
-            <div class="code-pair">
-              <pre><code><span class="c">% common/facts/roles.tex</span>
-\defrole{windowsill}{
+            <div class="tour-text">
+              <h3>Facts cited by key</h3>
+              <p>
+                A role's title, employer, place, and dates are defined once in
+                <code>common/facts/</code> and cited by key, so every variant prints them the same
+                way.
+              </p>
+            </div>
+            <div class="tour-art">
+              <div class="code-pair" data-pen-group data-pen-layer>
+                <pre><code><span class="c">% common/facts/roles.tex</span>
+\defrole{<span data-pen="underline">windowsill</span>}{
   title = {Head of Windowsill Operations},
   org = {Sunbeam Estates},
   location = {Living Room},
   start = 2023-04, end = present,
 }</code></pre>
-              <pre><code><span class="c">% canonical/resume.tex</span>
-\begin{role}{windowsill}
+                <pre><code><span class="c">% canonical/resume.tex</span>
+\begin{role}{<span data-pen="underline" data-note="same key" data-note-side="right">windowsill</span>}
   \item Initiated and led
     ``Operation Red Dot'', …
 \end{role}</code></pre>
+              </div>
+              <figure
+                class="closeup is-line"
+                data-pen-group
+                data-crop="30 239 232 19.5"
+                data-mark="underline 61.9 245 145 10"
+                data-expect="Head of Windowsill Operations"
+                style="--x: 30; --y: 239; --w: 232; --h: 19.5"
+              >
+                <div class="closeup-paper" data-paper data-pen-layer>
+                  <div class="closeup-crop">
+                    <img
+                      src="img/canonical-1.png"
+                      alt="Close-up of page 1: the role header Head of Windowsill Operations, Sunbeam Estates, Living Room"
+                      width="935"
+                      height="1210"
+                      loading="lazy"
+                    />
+                  </div>
+                </div>
+              </figure>
             </div>
           </li>
           <li>
-            <h3>A typo fails the build</h3>
-            <p>
-              Cite <code>windowsil</code> instead of <code>windowsill</code> and the build stops
-              with an error that names it. So do a missing field, a duplicate section, and a date
-              like <code>2024-13</code>.
-            </p>
-            <pre
-              class="error"
-            ><code>./canonical/resume.tex:60: Package resume Error: Unknown role key 'windowsil'.</code></pre>
+            <div class="tour-text">
+              <h3>A typo fails the build</h3>
+              <p>
+                Cite <code>windowsil</code> instead of <code>windowsill</code> and the build stops
+                with an error that names it. So do a missing field, a duplicate section, and a date
+                like <code>2024-13</code>.
+              </p>
+            </div>
+            <div class="tour-art error-wrap" data-pen-group data-pen-layer>
+              <pre
+                class="error"
+              ><code>./canonical/resume.tex:60: Package resume Error: Unknown role key <span class="nowrap" data-pen="circle" data-note="one “l” short" data-note-side="below">'windowsil'</span>.</code></pre>
+            </div>
           </li>
-          <li>
-            <h3>No stranded titles</h3>
+          <li data-pen-group data-pen-layer>
+            <div class="tour-text">
+              <h3>No stranded titles</h3>
+              <p>
+                Pages break between bullets, never between a role's title and its first bullet or
+                between a heading and its first entry. A test moves the content through
+                <span data-pen="underline">51 page positions</span> to check.
+              </p>
+            </div>
+          </li>
+        </ol>
+      </section>
+
+      <section class="section" id="how-it-works" aria-labelledby="how-it-works-title">
+        <h2 id="how-it-works-title">How it works</h2>
+        <p class="lead">
+          One complete resume, a tailored copy for each job, and git to remember what you sent.
+        </p>
+        <ol class="beats">
+          <li class="beat">
+            <div class="beat-art art-facts" data-pen-group data-pen-layer aria-hidden="true">
+              <div class="mini-paper" data-paper data-note="written once" data-note-side="below">
+                <span class="mini-c">% common/facts/roles.tex</span>
+                <span>\defrole{<span data-pen="circle">windowsill</span>}{</span>
+                <span>&nbsp; title = {Head of …},</span>
+                <span>&nbsp; start = 2023-04,</span>
+                <span>}</span>
+              </div>
+              <div class="cast-slot" data-cast="duna"></div>
+            </div>
+            <h3>Facts, written once</h3>
             <p>
-              Pages break between bullets, never between a role's title and its first bullet or
-              between a heading and its first entry. A test moves the content through 51 page
-              positions to check.
+              Roles, projects, degrees, publications, service, and honors are defined once in
+              <code>common/facts/</code> and cited by key. A wrong key, a missing field, or a bad
+              date stops the build, so a title or a date can't drift between variants.
+            </p>
+          </li>
+          <li class="beat">
+            <div class="beat-art art-plan" data-pen-group data-pen-layer aria-hidden="true">
+              <div class="mini-term" data-note="asks first. no fibs. 🐟" data-note-side="above">
+                <span class="mini-dim">❯ /customize-resume …</span>
+                <span>Proceed with this plan?</span>
+                <span class="mini-sel"
+                  >❯ <span data-pen="circle" data-pen-ink="term">1. Yes</span></span
+                >
+                <span>&nbsp; 2. Adjust the plan</span>
+              </div>
+              <div class="cast-slot" data-cast="duna" data-pose="blink"></div>
+            </div>
+            <h3><code>/customize-resume</code> tailors, with your approval</h3>
+            <p>
+              Give Claude Code a job posting. It saves a summary as <code>jd.md</code> in a new
+              application folder, maps what the job asks for to evidence already in your resume, and
+              stops for your approval before it edits. An ask with no evidence is marked as such,
+              never invented.
+            </p>
+          </li>
+          <li class="beat">
+            <div class="beat-art art-history" data-pen-group data-pen-layer aria-hidden="true">
+              <div class="mini-paper mini-sheet" data-paper>
+                <i class="mini-name"></i>
+                <i class="mini-bar"></i>
+                <i></i><i></i><i class="short"></i><i></i><i></i><i class="short"></i>
+                <div
+                  class="mini-stamp"
+                  data-pen="arrow"
+                  data-pen-from="62 -78"
+                  data-pen-ink="desk"
+                  data-note="kept as sent"
+                  data-note-side="from"
+                >
+                  <span>🐾</span> submitted/
+                </div>
+              </div>
+              <div class="cast-slot" data-cast="nangnang"></div>
+            </div>
+            <h3><code>/update-resume</code> and tags keep history</h3>
+            <p>
+              New experience goes into the facts and the canonical resume, and Claude asks for any
+              date or title it doesn't have. Each application is a folder; tag it
+              <code>submitted/…</code> when you send it, and checking out the tag and building it
+              gives back what you sent (with the same TeX Live).
             </p>
           </li>
         </ol>
@@ -213,13 +387,43 @@ just test            <span class="c"># run the template tests</span></code></pre
       </section>
     </main>
 
-    <footer class="site-foot">
-      <p>
+    <footer class="site-foot" id="credits" aria-labelledby="credits-title">
+      <h2 id="credits-title">Credits</h2>
+      <ul class="cast-list" data-pen-group data-pen-layer>
+        <li>
+          <div class="cast-slot" data-cast="duna"></div>
+          <div>
+            <h3>Duna Feline</h3>
+            <p>
+              The star, and the owner of the sample resume: a gray tabby with amber eyes. Duna
+              Feline is fictional. Her name is half of each of her co-stars:
+            </p>
+            <p class="hand"><span data-pen="underline">Duna = Du(du) + Na(ngnang)</span></p>
+          </div>
+        </li>
+        <li>
+          <div class="cast-slot" data-cast="dudu"></div>
+          <div>
+            <h3>Dudu</h3>
+            <p>Solid gray, green eyes. Co-author of Duna's papers; cheers when she gets the job.</p>
+          </div>
+        </li>
+        <li>
+          <div class="cast-slot" data-cast="nangnang"></div>
+          <div>
+            <h3>Nangnang</h3>
+            <p>A brown tabby. Co-author too; stamps the tag when a resume goes out.</p>
+          </div>
+        </li>
+      </ul>
+      <p class="fine">
+        my-resume is under the
         <a href="https://github.com/h1994st/my-resume/blob/main/LICENSE">MIT license</a>. Fonts:
-        Source Serif 4 and Source Sans 3, under the
+        Source Serif 4 and Source Sans 3 for the resume, and Caveat for the pen, all under the
         <a href="https://github.com/h1994st/my-resume/blob/main/fonts/SourceSerif4/LICENSE.md"
           >SIL Open Font License</a
-        >. Duna Feline is fictional.
+        >
+        (<a href="fonts/caveat/OFL.txt">Caveat's license</a>).
       </p>
     </footer>
   </body>

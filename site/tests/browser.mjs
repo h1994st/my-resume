@@ -1607,68 +1607,465 @@ test("layout: every scene's end frame at every size, in both themes, with screen
   assert.deepEqual(problems, []);
 });
 
-test("the template and get-started sections", async ({ newPage }) => {
+// --- Tests: the product page below the film ---------------------------------------------------
+
+const SECTIONS = ["template", "how-it-works", "get-started", "credits"];
+
+// Scrolls down the page a part of a screen at a time to its end (each pen group draws when it
+// comes into view), then waits until every pen group is drawn.
+const readPage = async (page) => {
+  await page.eval(async () => {
+    const frame = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    for (let y = 0; y < document.documentElement.scrollHeight; y += innerHeight * 0.5) {
+      scrollTo(0, y);
+      await frame();
+    }
+    scrollTo(0, document.documentElement.scrollHeight);
+    await frame();
+  });
+  await page.waitFor(
+    () =>
+      [...document.querySelectorAll("[data-pen-group]")].every(
+        (g) => g.dataset.penState === "drawn",
+      ),
+    { timeout: 30_000 },
+  );
+};
+
+// Everything the sections show, measured.
+const sectionsState = (page) =>
+  page.eval((ids) => {
+    const q = (s) => document.querySelector(s);
+    const text = (el) => (el?.textContent ?? "").replace(/\s+/g, " ");
+    const rgb = (c) =>
+      c
+        .match(/[\d.]+/g)
+        .slice(0, 3)
+        .map(Number);
+    const lum = ([r, g, b]) => {
+      const ch = (v) => ((v /= 255) <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+      return 0.2126 * ch(r) + 0.7152 * ch(g) + 0.0722 * ch(b);
+    };
+    const contrast = (a, b) => {
+      const [l1, l2] = [lum(rgb(a)), lum(rgb(b))].sort((x, y) => y - x);
+      return (l1 + 0.05) / (l2 + 0.05);
+    };
+    // The first opaque background at or above el.
+    const bgOf = (el) => {
+      for (let n = el; n; n = n.parentElement) {
+        const c = getComputedStyle(n).backgroundColor;
+        if (!/rgba\(.*,\s*0\)$/.test(c) && c !== "transparent") return c;
+      }
+      return getComputedStyle(document.body).backgroundColor;
+    };
+    const t = q("#template");
+    const g = q("#get-started");
+    const all = ids.map((id) => document.getElementById(id));
+    const els = all.flatMap((s) => (s ? [s, ...s.querySelectorAll("*")] : []));
+    // A "0" in each paragraph's font, for its measure in ch.
+    const ch = (el) => {
+      const probe = document.createElement("span");
+      probe.textContent = "0".repeat(10);
+      probe.style.cssText = "position:absolute;visibility:hidden;white-space:nowrap";
+      el.append(probe);
+      const w = probe.getBoundingClientRect().width / 10;
+      probe.remove();
+      return w;
+    };
+    return {
+      order: [...document.querySelectorAll("main > section, body > footer")].map((s) => s.id),
+      figures: [...t.querySelectorAll("a > img")].map((img) => ({
+        src: img.getAttribute("src"),
+        href: img.parentElement.getAttribute("href"),
+        loaded: img.complete && img.naturalWidth > 0,
+      })),
+      items: t.querySelectorAll("ol.tour > li").length,
+      text: text(t),
+      commands: g.querySelector("pre").textContent.replace(/\n$/, "").split("\n"),
+      links: [...g.querySelectorAll("a")].map((a) => a.getAttribute("href")),
+      how: [...document.querySelectorAll("#how-it-works .beat")].map((b) => ({
+        title: text(b.querySelector("h3")).trim(),
+        cats: [...b.querySelectorAll(".cat")].map((c) => [
+          c.dataset.cat,
+          c.getAttribute("aria-hidden"),
+        ]),
+        marks: b.querySelectorAll(".pen-mark").length,
+      })),
+      credits: {
+        text: text(q("#credits")),
+        cats: [...document.querySelectorAll("#credits .cat")].map((c) => c.dataset.cat),
+        links: [...document.querySelectorAll("#credits a")].map((a) => a.getAttribute("href")),
+      },
+      marks: Object.fromEntries(all.map((s) => [s.id, s.querySelectorAll(".pen-mark").length])),
+      // Pen ink against what it lies on (handwriting: 3:1).
+      ink: [...document.querySelectorAll(".sections .pen-note, #credits .pen-note")].map((n) => ({
+        text: n.textContent,
+        contrast: contrast(getComputedStyle(n).color, bgOf(n.parentElement)),
+      })),
+      // Pen notes and marks inside the window's width.
+      penBoxes: [
+        ...document.querySelectorAll(
+          ".sections .pen-note, .sections .pen-mark, #credits .pen-note",
+        ),
+      ].map((n) => {
+        const r = n.getBoundingClientRect();
+        return { left: r.left, right: r.right, text: n.textContent };
+      }),
+      // Emoji are decoration: inside aria-hidden.
+      bareEmoji: els
+        .filter((el) =>
+          [...el.childNodes].some(
+            (c) => c.nodeType === 3 && /\p{Extended_Pictographic}/u.test(c.textContent),
+          ),
+        )
+        .filter((el) => !el.closest("[aria-hidden='true']"))
+        .map((el) => el.textContent.trim()),
+      caps: els
+        .filter((el) => getComputedStyle(el).textTransform === "uppercase")
+        .map((el) => el.textContent.trim()),
+      gradients: els
+        .filter((el) => /gradient/.test(getComputedStyle(el).backgroundImage))
+        .map((el) => el.className),
+      arrows: els.filter((el) => el.tagName === "A" && /→/.test(el.textContent)).length,
+      // Prose measure, in ch of the paragraph's own font.
+      wide: [...document.querySelectorAll(".sections p, #credits p")]
+        .filter((p) => !p.classList.contains("pen-note"))
+        .map((p) => ({ text: p.textContent.trim().slice(0, 40), ch: p.offsetWidth / ch(p) }))
+        .filter((p) => p.ch > 80),
+      scrollWidth: document.documentElement.scrollWidth,
+      vw: innerWidth,
+    };
+  }, SECTIONS);
+
+test("sections: the template, how it works, get started, and credits, at every size in both themes", async ({
+  newPage,
+}) => {
   const readme = readFileSync(path.join(REPO, "README.md"), "utf8");
   const quick = readme
     .slice(readme.indexOf("Quick start"))
     .match(/```bash\n([\s\S]*?)\n```/)[1]
     .split("\n");
-  for (const [width, height] of SIZES) {
-    const page = await newPage({ width, height, mobile: width < 800, deviceScaleFactor: 1 });
-    await page.goto("/");
-    await page.eval(() => window.__demo.film.pause());
-    const got = await page.eval(() => {
-      const t = document.getElementById("template");
-      const g = document.getElementById("get-started");
-      return {
-        figures: [...t.querySelectorAll("a > img")].map((img) => ({
-          src: img.getAttribute("src"),
-          href: img.parentElement.getAttribute("href"),
-          loaded: img.complete && img.naturalWidth > 0,
-        })),
-        items: t.querySelectorAll("ol > li").length,
-        text: t.textContent.replace(/\s+/g, " "),
-        commands: g.querySelector("pre").textContent.replace(/\n$/, "").split("\n"),
-        links: [...g.querySelectorAll("a")].map((a) => a.getAttribute("href")),
-        footer: document.querySelector("footer").textContent,
-        scrollWidth: document.documentElement.scrollWidth,
-      };
-    });
-    assert.deepEqual(
-      got.figures.map((f) => [f.src, f.href]),
-      [
-        ["img/canonical-1.png", "pdf/canonical.pdf"],
-        ["img/canonical-2.png", "pdf/canonical.pdf"],
-        ["img/tailored-1.png", "pdf/tailored.pdf"],
-      ],
+  const problems = [];
+  for (const theme of ["light", "dark"]) {
+    for (const [width, height] of SIZES) {
+      const label = `${width}×${height} ${theme}`;
+      const page = await newPage({
+        width,
+        height,
+        mobile: width < 800 || height < 500,
+        deviceScaleFactor: 1,
+        media: scheme(theme),
+      });
+      await page.goto("/");
+      await page.eval(() => window.__demo.film.pause());
+      await readPage(page);
+      await page.waitFor(() =>
+        [...document.querySelectorAll("#template img")].every((i) => i.complete && i.naturalWidth),
+      );
+      const got = await sectionsState(page);
+      assert.deepEqual(got.order, SECTIONS, `${label}: sections in order`);
+      assert.deepEqual(
+        got.figures.map((f) => [f.src, f.href]),
+        [
+          ["img/canonical-1.png", "pdf/canonical.pdf"],
+          ["img/canonical-2.png", "pdf/canonical.pdf"],
+          ["img/tailored-1.png", "pdf/tailored.pdf"],
+        ],
+      );
+      assert.ok(
+        got.figures.every((f) => f.loaded),
+        `${label}: page images load`,
+      );
+      assert.equal(got.items, 6, "six things to notice");
+      assert.match(got.text, /Package resume Error: Unknown role key 'windowsil'\./);
+      assert.match(got.text, /\.\/canonical\/resume\.tex:60:/);
+      assert.match(got.text, /\\defrole\{windowsill\}/);
+      assert.match(got.text, /\\begin\{role\}\{windowsill\}/);
+      assert.match(got.text, /51 page positions/);
+      assert.deepEqual(got.commands, quick, "the README's quick start");
+      for (const href of [
+        "https://github.com/h1994st/my-resume",
+        "https://github.com/h1994st/my-resume/blob/main/CLAUDE.md",
+        "https://github.com/h1994st/my-resume/blob/main/.claude/skills/customize-resume/SKILL.md",
+        "https://github.com/h1994st/my-resume/blob/main/.claude/skills/update-resume/SKILL.md",
+      ]) {
+        assert.ok(got.links.includes(href), `link to ${href}`);
+      }
+      // How it works: three beats, each with a decorative cat and pen marks.
+      assert.equal(got.how.length, 3, "three beats");
+      assert.match(got.how[0].title, /once/i);
+      assert.match(got.how[1].title, /\/customize-resume/);
+      assert.match(got.how[2].title, /\/update-resume/);
+      for (const beat of got.how) {
+        assert.ok(beat.cats.length >= 1, `${label}: a cat in "${beat.title}"`);
+        assert.ok(
+          beat.cats.every(([, hidden]) => hidden === "true"),
+          `${label}: decorative cats`,
+        );
+        assert.ok(beat.marks >= 1, `${label}: a pen mark in "${beat.title}"`);
+      }
+      // Credits: the cast, the name, the license, and the fonts.
+      assert.deepEqual(got.credits.cats, ["duna", "dudu", "nangnang"]);
+      for (const s of [
+        "Duna = Du(du) + Na(ngnang)",
+        "Dudu",
+        "Nangnang",
+        "MIT",
+        "SIL Open Font License",
+        "Source Serif 4",
+        "Source Sans 3",
+        "Caveat",
+        "Duna Feline is fictional.",
+      ]) {
+        assert.ok(got.credits.text.includes(s), `credits: "${s}"`);
+      }
+      assert.ok(
+        got.credits.links.includes("https://github.com/h1994st/my-resume/blob/main/LICENSE"),
+        "credits: the MIT license",
+      );
+      assert.ok(got.credits.links.includes("fonts/caveat/OFL.txt"), "credits: Caveat's license");
+      // The pen: on the template's pages and snippets; legible; inside the window.
+      assert.ok(got.marks.template >= 6, `${label}: ${got.marks.template} marks on the template`);
+      for (const n of got.ink) {
+        if (n.contrast < 3) problems.push(`${label}: note "${n.text}" contrast ${n.contrast}`);
+      }
+      for (const b of got.penBoxes) {
+        if (b.left < -1 || b.right > got.vw + 1) {
+          problems.push(`${label}: pen "${b.text}" outside the window (${b.left}–${b.right})`);
+        }
+      }
+      // Calm: no all-caps, gradients, or arrows on links; prose under 80ch; emoji decorative.
+      assert.deepEqual(got.caps, [], `${label}: all-caps text`);
+      assert.deepEqual(got.gradients, [], `${label}: gradients`);
+      assert.equal(got.arrows, 0, `${label}: "→" on a link`);
+      assert.deepEqual(got.wide, [], `${label}: prose over 80ch`);
+      assert.deepEqual(got.bareEmoji, [], `${label}: emoji not aria-hidden`);
+      if (got.scrollWidth > width) {
+        problems.push(`${label}: horizontal scroll (${got.scrollWidth} > ${width})`);
+      }
+      for (const id of SECTIONS) {
+        await page.screenshotOf(`#${id}`, `section-${id}-${theme}-${width}x${height}`);
+      }
+      await page.close();
+    }
+  }
+  assert.deepEqual(problems, []);
+});
+
+test("sections: pen marks draw once when scrolled into view, and redraw at once on a resize", async ({
+  newPage,
+}) => {
+  const page = await newPage({ width: 1280, height: 720, media: scheme("light") });
+  await page.goto("/");
+  await page.eval(() => window.__demo.film.pause());
+  await page.waitFor(() => window.__page?.ready);
+  // Nothing is drawn below the fold yet.
+  const before = await page.eval(() => ({
+    states: [...document.querySelectorAll("[data-pen-group]")].map((g) => g.dataset.penState),
+    marks: document.querySelectorAll(".sections .pen-mark, #credits .pen-mark").length,
+  }));
+  assert.ok(before.states.length >= 8, `${before.states.length} pen groups`);
+  assert.ok(
+    before.states.every((s) => s === "waiting"),
+    `states before scrolling: ${before.states}`,
+  );
+  assert.equal(before.marks, 0, "no marks before scrolling");
+  // Scrolled into view, the first close-up draws on (animated), then is drawn.
+  await page.eval(() =>
+    document.querySelector("#template .closeup").scrollIntoView({ block: "center" }),
+  );
+  const drawing = await page.waitFor(() => {
+    const g = document.querySelector("#template .closeup");
+    if (g.dataset.penState === "drawing") {
+      return document.getAnimations().filter((a) => a.playState === "running").length;
+    }
+    return 0;
+  });
+  assert.ok(drawing > 0, "the pen draws on");
+  await page.waitFor(
+    () => document.querySelector("#template .closeup").dataset.penState === "drawn",
+  );
+  // Tag the drawn marks; scrolling away and back draws nothing new.
+  const count = await page.eval(() => {
+    const marks = document.querySelectorAll(
+      "#template .closeup .pen-mark, #template .closeup .pen-note",
+    );
+    for (const m of marks) m.dataset.tagged = "1";
+    return marks.length;
+  });
+  assert.ok(count >= 1);
+  await page.eval(() => scrollTo(0, 0));
+  await page.frames(4);
+  await page.eval(() =>
+    document.querySelector("#template .closeup").scrollIntoView({ block: "center" }),
+  );
+  await page.frames(10);
+  const again = await page.eval(() => ({
+    all: document.querySelectorAll("#template .closeup .pen-mark, #template .closeup .pen-note")
+      .length,
+    tagged: document.querySelectorAll("#template .closeup [data-tagged]").length,
+    state: document.querySelector("#template .closeup").dataset.penState,
+  }));
+  assert.deepEqual(again, { all: count, tagged: count, state: "drawn" }, "drawn once");
+  // A resize redraws a drawn group at once (no animation), to its new size.
+  await page.viewport(390, 844);
+  await page.waitFor(() => !document.querySelector("#template .closeup [data-tagged]"), {
+    timeout: 5000,
+  });
+  const resized = await page.eval(() => {
+    const g = document.querySelector("#template .closeup");
+    const box = g.querySelector(".closeup-paper").getBoundingClientRect();
+    const marks = [...g.querySelectorAll(".pen-mark")];
+    return {
+      state: g.dataset.penState,
+      marks: marks.length,
+      running: document
+        .getAnimations()
+        .filter((a) => a.playState === "running" && a.effect?.target?.closest?.(".closeup")).length,
+      inside: marks.every((m) => {
+        const r = m.getBoundingClientRect();
+        const cx = (r.left + r.right) / 2;
+        const cy = (r.top + r.bottom) / 2;
+        return cx > box.left && cx < box.right && cy > box.top && cy < box.bottom;
+      }),
+    };
+  });
+  assert.equal(resized.state, "drawn");
+  assert.ok(resized.marks >= 1, "marks redrawn");
+  assert.equal(resized.running, 0, "redrawn without animation");
+  assert.ok(resized.inside, "marks on the resized close-up");
+});
+
+test("sections: with reduced motion every pen mark is drawn at once, without animation", async ({
+  newPage,
+}) => {
+  const page = await newPage({ width: 1280, height: 720, media: REDUCED });
+  await page.goto("/");
+  await page.waitFor(() => window.__page?.ready);
+  const got = await page.eval(() => ({
+    states: [...document.querySelectorAll("[data-pen-group]")].map((g) => g.dataset.penState),
+    marks: document.querySelectorAll(".sections .pen-mark").length,
+    running: document
+      .getAnimations()
+      .filter((a) => a.playState === "running")
+      .filter((a) => a.effect?.target?.closest?.(".sections, #credits")).length,
+    // Cats hold still.
+    catMotion: [...document.querySelectorAll(".sections .cat, #credits .cat")].some((c) =>
+      [...c.querySelectorAll("*")].some((n) => getComputedStyle(n).animationName !== "none"),
+    ),
+  }));
+  assert.ok(
+    got.states.every((s) => s === "drawn"),
+    `states: ${got.states}`,
+  );
+  assert.ok(got.marks >= 6, `${got.marks} marks`);
+  assert.equal(got.running, 0, "no running animations in the sections");
+  assert.equal(got.catMotion, false, "no cat motion");
+});
+
+test("sections: each close-up's pen mark sits on what it names in the real PDF", async ({
+  newPage,
+}) => {
+  // Word boxes of the canonical PDF's first page, in pt (pdftotext -bbox, from poppler).
+  const { execFileSync } = await import("node:child_process");
+  const xml = execFileSync(
+    "pdftotext",
+    ["-f", "1", "-l", "1", "-bbox", path.join(SITE, "pdf/canonical.pdf"), "-"],
+    { encoding: "utf8" },
+  );
+  const size = xml
+    .match(/<page width="([\d.]+)" height="([\d.]+)"/)
+    .slice(1)
+    .map(Number);
+  const words = [
+    ...xml.matchAll(
+      /<word xMin="([\d.]+)" yMin="([\d.]+)" xMax="([\d.]+)" yMax="([\d.]+)">([^<]*)<\/word>/g,
+    ),
+  ].map((m) => ({ x0: +m[1], y0: +m[2], x1: +m[3], y1: +m[4], w: m[5] }));
+  // The first run of words that spells `phrase`, as one box.
+  const find = (phrase) => {
+    const want = phrase.split(" ");
+    for (let i = 0; i < words.length; i++) {
+      const run = words.slice(i, i + want.length);
+      if (run.length === want.length && run.every((w, k) => w.w.startsWith(want[k]))) {
+        return {
+          x0: Math.min(...run.map((w) => w.x0)),
+          y0: Math.min(...run.map((w) => w.y0)),
+          x1: Math.max(...run.map((w) => w.x1)),
+          y1: Math.max(...run.map((w) => w.y1)),
+        };
+      }
+    }
+    throw new Error(`"${phrase}" not on page 1`);
+  };
+  const page = await newPage({ width: 1280, height: 720, media: REDUCED });
+  await page.goto("/");
+  await page.waitFor(() => window.__page?.ready);
+  const closeups = await page.eval(() =>
+    [...document.querySelectorAll("#template .closeup")].map((c) => ({
+      crop: c.dataset.crop.split(" ").map(Number),
+      mark: c.dataset.mark.split(" "),
+      expect: c.dataset.expect,
+      src: c.querySelector("img").getAttribute("src"),
+      drawn: c.querySelectorAll(".pen-mark").length,
+    })),
+  );
+  assert.ok(closeups.length >= 4, `${closeups.length} close-ups`);
+  assert.deepEqual(size, [612, 792], "US Letter pages");
+  const tol = 3;
+  for (const c of closeups) {
+    assert.equal(c.src, "img/canonical-1.png", "close-ups are of the real page 1");
+    assert.ok(c.drawn >= 1, `${c.expect}: drawn`);
+    const [, ...nums] = c.mark;
+    const [mx, my, mw, mh] = nums.map(Number);
+    const m = { x0: mx, y0: my, x1: mx + mw, y1: my + mh };
+    const [cx, cy, cw, ch] = c.crop;
+    // The mark lies inside the crop.
+    assert.ok(
+      m.x0 >= cx && m.x1 <= cx + cw && m.y0 >= cy && m.y1 <= cy + ch,
+      `${c.expect}: mark outside its crop`,
+    );
+    if (c.expect === "spine") {
+      // The spine is drawn, not text: left of the role titles, alongside them.
+      for (const title of ["Head of Windowsill", "Senior Box Inspector"]) {
+        const b = find(title);
+        assert.ok(m.x1 <= b.x0 && b.x0 - m.x1 < 15, `spine: not just left of "${title}"`);
+        const mid = (b.y0 + b.y1) / 2;
+        assert.ok(mid > m.y0 && mid < m.y1, `spine: not alongside "${title}"`);
+      }
+      continue;
+    }
+    // Text: the words inside the mark's box, and the box hugging them.
+    const b = find(c.expect);
+    assert.ok(
+      b.x0 >= m.x0 - tol && b.x1 <= m.x1 + tol && b.y0 >= m.y0 - tol && b.y1 <= m.y1 + tol,
+      `${c.expect}: words ${JSON.stringify(b)} outside the mark ${JSON.stringify(m)}`,
     );
     assert.ok(
-      got.figures.every((f) => f.loaded),
-      "page images load",
+      b.x0 - m.x0 < 12 && m.x1 - b.x1 < 12 && b.y0 - m.y0 < 8 && m.y1 - b.y1 < 8,
+      `${c.expect}: mark ${JSON.stringify(m)} loose around ${JSON.stringify(b)}`,
     );
-    assert.equal(got.items, 6, "six things to notice");
-    assert.match(got.text, /Package resume Error: Unknown role key 'windowsil'\./);
-    assert.match(got.text, /\\defrole\{windowsill\}/);
-    assert.match(got.text, /\\begin\{role\}\{windowsill\}/);
-    assert.match(got.text, /51 page positions/);
-    assert.deepEqual(got.commands, quick, "the README's quick start");
-    for (const href of [
-      "https://github.com/h1994st/my-resume",
-      "https://github.com/h1994st/my-resume/blob/main/CLAUDE.md",
-      "https://github.com/h1994st/my-resume/blob/main/.claude/skills/customize-resume/SKILL.md",
-      "https://github.com/h1994st/my-resume/blob/main/.claude/skills/update-resume/SKILL.md",
-    ]) {
-      assert.ok(got.links.includes(href), `link to ${href}`);
-    }
-    assert.match(got.footer, /MIT/);
-    assert.match(got.footer, /Open Font License/);
-    assert.match(got.footer, /Duna Feline is fictional\./);
-    assert.ok(got.scrollWidth <= width, `no horizontal scroll at ${width}×${height}`);
-    await page.screenshotOf("#template", `template-${width}x${height}`);
-    await page.screenshotOf("#get-started", `get-started-${width}x${height}`);
-    await page.screenshotOf(".site-foot", `footer-${width}x${height}`);
-    await page.close();
   }
+});
+
+test("sections: links show a visible keyboard focus ring", async ({ newPage }) => {
+  const page = await newPage({ width: 1280, height: 720 });
+  await page.goto("/");
+  await page.eval(() => window.__demo.film.pause());
+  await page.key("Tab");
+  const rings = await page.eval(() =>
+    [...document.querySelectorAll(".sections a, #credits a")].map((a) => {
+      a.focus();
+      const cs = getComputedStyle(a);
+      return {
+        href: a.getAttribute("href"),
+        visible: a.matches(":focus-visible") && cs.outlineStyle !== "none",
+        width: parseFloat(cs.outlineWidth),
+      };
+    }),
+  );
+  assert.ok(rings.length >= 8);
+  for (const r of rings) assert.ok(r.visible && r.width >= 2, `no focus ring on ${r.href}`);
 });
 
 test("head: title, description, theme colour, Open Graph image, favicon", async ({ newPage }) => {
@@ -2296,6 +2693,7 @@ test("no absolute script, stylesheet, or media URLs except Google's gtag", async
     "cast.js",
     "pen.js",
     "kit.js",
+    "page.js",
     "style.css",
   ]) {
     const text = readFileSync(path.join(SITE, file), "utf8");

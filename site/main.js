@@ -1,7 +1,9 @@
-// Wires the page: the theme toggle, the launch film (film.js playing scenes.js), and analytics.
-// Exposes window.__demo = { film, events } for the browser tests once the film is ready.
+// Wires the page: the theme toggle, the launch film (film.js playing scenes.js), the product page
+// below it (page.js), and analytics. Exposes window.__demo = { film, events } for the browser
+// tests once the film is ready (and page.js sets window.__page).
 
 import { createFilm } from "./film.js";
+import { initPage } from "./page.js";
 import { ACTORS, CUES, SCENES } from "./scenes.js";
 import { initTheme } from "./theme.js";
 
@@ -57,6 +59,8 @@ const film = createFilm({
 film.ready.then(() => {
   window.__demo = { film, events };
 });
+
+initPage();
 
 // index.html?kit: the cast and pen kit instead of the page (kit.js).
 if (new URLSearchParams(location.search).has("kit")) import("./kit.js").then((m) => m.renderKit());

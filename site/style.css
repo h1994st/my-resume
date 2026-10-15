@@ -386,6 +386,7 @@
   --dot: rgb(29 35 43 / 0.09); /* the film's desk grid */
   --hl: rgb(251 191 36 / 0.5); /* the caption's highlighter */
   --sheet-shadow: 0 2px 4px rgb(0 0 0 / 0.05), 0 26px 50px -18px rgb(29 35 43 / 0.32);
+  --paper-lift: 0 1px 2px rgb(0 0 0 / 0.06), 0 12px 26px -14px rgb(29 35 43 / 0.4);
   --accent: #374151;
   --on-accent: #ffffff;
   --tint: #e2e5e9;
@@ -413,6 +414,7 @@
     --dot: rgb(238 241 245 / 0.07);
     --hl: rgb(234 88 12 / 0.55);
     --sheet-shadow: 0 2px 4px rgb(0 0 0 / 0.3), 0 30px 60px -18px rgb(0 0 0 / 0.7);
+    --paper-lift: 0 1px 2px rgb(0 0 0 / 0.3), 0 14px 30px -14px rgb(0 0 0 / 0.75);
     --accent: #d5dbe3;
     --on-accent: #1b1f25;
     --tint: #2c323b;
@@ -434,6 +436,7 @@
   --dot: rgb(238 241 245 / 0.07);
   --hl: rgb(234 88 12 / 0.55);
   --sheet-shadow: 0 2px 4px rgb(0 0 0 / 0.3), 0 30px 60px -18px rgb(0 0 0 / 0.7);
+  --paper-lift: 0 1px 2px rgb(0 0 0 / 0.3), 0 14px 30px -14px rgb(0 0 0 / 0.75);
   --accent: #d5dbe3;
   --on-accent: #1b1f25;
   --tint: #2c323b;
@@ -1218,24 +1221,29 @@ a:hover {
   }
 }
 
-/* Sections below the film: quiet, static, one reading column. */
+/* The product page below the film (page.js): one reading column on the desk, the real pages as
+   papers, pen notes in Caveat. The only motion is the pen drawing each group once, and the cats'
+   idle life; neither with reduced motion. */
 .sections {
   box-sizing: border-box;
-  max-width: 1120px;
+  max-width: 1160px;
   margin: 0 auto;
   padding: 0 16px;
 }
 .section {
   padding-top: clamp(72px, 8vw, 136px);
 }
-.section h2 {
+.section h2,
+.site-foot h2 {
   margin: 0 0 16px;
   font: 600 clamp(28px, 1.2vw + 20px, 40px) / 1.15 var(--ui);
   letter-spacing: -0.01em;
 }
 .lead,
 .prose,
-.tour p {
+.tour-text p,
+.beat > p,
+.cast-list p {
   max-width: 64ch;
   font-family: var(--serif);
 }
@@ -1253,8 +1261,7 @@ code {
   font-family: var(--mono);
   font-size: 0.86em;
 }
-p code,
-.tour p code {
+p code {
   padding: 0.05em 0.3em;
   border-radius: 3px;
   background: var(--code-bg);
@@ -1281,13 +1288,25 @@ pre code {
 pre .c {
   color: var(--muted);
 }
+.nowrap {
+  white-space: nowrap;
+}
+/* Handwriting that is page text, not a pen note. */
+.hand {
+  color: var(--pen-desk);
+  font:
+    600 26px/1.15 "Caveat",
+    "Bradley Hand",
+    "Segoe Print",
+    cursive;
+}
 
-/* The real pages: three across; a swipeable row on phones. */
+/* The real pages: papers side by side on the desk; a swipeable row on phones. */
 .sheets {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: clamp(16px, 2.5vw, 40px);
-  margin: 0 0 64px;
+  gap: clamp(20px, 3vw, 48px);
+  margin: 0 0 72px;
 }
 .sheets figure {
   margin: 0;
@@ -1295,82 +1314,116 @@ pre .c {
 .sheets a {
   display: block;
   border-radius: 2px;
+  box-shadow: var(--paper-lift);
 }
 .sheets img {
   display: block;
   width: 100%;
   height: auto;
-  box-shadow:
-    0 1px 2px rgb(0 0 0 / 0.06),
-    0 6px 24px rgb(0 0 0 / 0.08);
+  border-radius: 2px;
 }
 .sheets figcaption {
-  margin-top: 14px;
-  color: var(--muted);
-  font-size: 15px;
+  margin-top: 12px;
+  color: var(--pen-desk);
+  font:
+    600 24px/1.1 "Caveat",
+    "Bradley Hand",
+    "Segoe Print",
+    cursive;
+  rotate: -1.5deg;
+  transform-origin: left;
 }
 
-/* What to notice: numbered rings on a spine, the template's own motif. */
+/* What to notice: numbered in pen; each with a close-up of the real page, marked up. */
 .tour {
-  margin: 24px 0 0;
+  margin: 32px 0 0;
   padding: 0;
   list-style: none;
   counter-reset: tour;
 }
 .tour > li {
   position: relative;
-  padding: 0 0 40px 56px;
+  padding: 0 0 64px 48px;
   counter-increment: tour;
-}
-.tour > li::before {
-  content: "";
-  position: absolute;
-  left: 15px;
-  top: 0;
-  bottom: 0;
-  width: 2px;
-  background: var(--spine);
-}
-.tour > li:first-child::before {
-  top: 16px;
 }
 .tour > li:last-child {
   padding-bottom: 0;
 }
-.tour > li:last-child::before {
-  bottom: auto;
-  height: 16px;
-}
-.tour > li::after {
-  content: counter(tour);
+.tour > li::before {
+  content: counter(tour) / "";
   position: absolute;
-  left: 0;
-  top: 0;
-  display: grid;
-  place-items: center;
-  box-sizing: border-box;
-  width: 32px;
-  height: 32px;
-  border: 2.5px solid var(--accent);
-  border-radius: 50%;
-  background: var(--desk);
-  color: var(--accent);
-  font: 600 15px/1 var(--ui);
-  font-variant-numeric: tabular-nums;
+  left: 2px;
+  top: -9px;
+  color: var(--pen-desk);
+  font:
+    600 40px/1 "Caveat",
+    "Bradley Hand",
+    "Segoe Print",
+    cursive;
+  rotate: -4deg;
 }
 .tour h3 {
-  margin: 3px 0 6px;
+  margin: 2px 0 6px;
   font: 600 20px/1.3 var(--ui);
 }
-.tour p {
+.tour-text p {
   margin: 0;
   font-size: 17px;
   line-height: 1.6;
 }
+.closeup,
+.tour-art {
+  margin: 24px 0 0;
+}
+.tour-art > .closeup {
+  margin-top: 28px;
+}
+/* A crop of the real page 1 (data-crop, in PDF points: --x, --y, --w, --h on a 612 × 792 pt
+   page) at the PNG's own scale (110 dpi: 110 / 72 px per point), narrower if need be. */
+.closeup {
+  width: calc(var(--w) * 1.5278px);
+  max-width: 100%;
+}
+.closeup-paper {
+  position: relative;
+  border-radius: 3px;
+  background: var(--paper);
+  box-shadow: var(--paper-lift);
+}
+/* A one-line crop sits on a slip of paper, with room for the pen around the line. */
+.closeup.is-line .closeup-paper {
+  padding: 12px 0;
+}
+.closeup-crop {
+  position: relative;
+  overflow: hidden;
+  aspect-ratio: var(--w) / var(--h);
+  border-radius: inherit;
+}
+.closeup-crop img {
+  position: absolute;
+  left: calc(var(--x) / var(--w) * -100%);
+  top: calc(var(--y) / var(--h) * -100%);
+  width: calc(612 / var(--w) * 100%);
+  max-width: none;
+  height: auto;
+}
 .code-pair {
+  position: relative;
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), max-content));
   gap: 0 16px;
+}
+.code-pair pre {
+  overflow: visible;
+}
+.error-wrap {
+  position: relative;
+  padding-bottom: 40px; /* room for the pen's note under the error */
+}
+pre.error {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 pre.error,
 .commands {
@@ -1378,6 +1431,170 @@ pre.error,
   width: fit-content;
   max-width: 100%;
 }
+@media (min-width: 1000px) {
+  .tour > li {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 500px);
+    column-gap: 56px;
+    align-items: start;
+  }
+  .tour > li > .closeup,
+  .tour > li > .tour-art {
+    margin-top: 6px;
+  }
+  .code-pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* How it works: three beats, each over a small scene on the desk (decorative). */
+.beats {
+  display: grid;
+  gap: 64px 48px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+@media (min-width: 960px) {
+  .beats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+/* Between a phone and three across: the scene beside its text. */
+@media (min-width: 640px) and (max-width: 959px) {
+  .beat {
+    display: grid;
+    grid-template-columns: 300px minmax(0, 1fr);
+    grid-template-rows: auto 1fr;
+    column-gap: 40px;
+  }
+  .beat-art {
+    grid-row: span 2;
+  }
+  .beat .beat-art + h3 {
+    margin-top: 8px;
+  }
+}
+.beat h3 {
+  margin: 24px 0 8px;
+  font: 600 20px/1.3 var(--ui);
+}
+.beat h3 code {
+  font-size: 0.92em;
+}
+.beat > p {
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.6;
+}
+.beat-art {
+  position: relative;
+  width: 300px;
+  max-width: 100%;
+  height: 184px;
+}
+.beat-art .cast-slot {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 84px;
+}
+.beat-art .cat {
+  width: 100%;
+}
+.mini-paper {
+  position: absolute;
+  left: 0;
+  top: 8px;
+  box-sizing: border-box;
+  padding: 12px 14px;
+  border-radius: 3px;
+  background: var(--paper);
+  color: #1d232b;
+  box-shadow: var(--paper-lift);
+  font: 11px/1.65 var(--mono);
+}
+.mini-paper > span {
+  display: block;
+  white-space: nowrap;
+}
+.mini-c {
+  color: #6b7280;
+}
+/* A small terminal card: dark in both themes, as in the film. */
+.mini-term {
+  position: absolute;
+  left: 0;
+  top: 40px;
+  box-sizing: border-box;
+  width: 200px;
+  padding: 12px 0 12px 12px;
+  border-radius: 8px;
+  background: #1c1f24;
+  color: #e6e6e6;
+  box-shadow:
+    0 0 0 1.5px var(--term-edge),
+    var(--paper-lift);
+  font: 11px/1.7 var(--mono);
+}
+.mini-term > span {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.mini-dim {
+  color: #8f96a1;
+}
+.mini-sel {
+  color: #9ec5fe;
+}
+/* A one-page resume, sketched, with the paw-print stamp. */
+.mini-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  width: 150px;
+  height: 176px;
+  top: 4px;
+  padding: 16px;
+}
+.mini-sheet i {
+  display: block;
+  flex: none;
+  height: 4px;
+  border-radius: 2px;
+  background: #d5d9de;
+}
+.mini-sheet i.short {
+  width: 62%;
+}
+.mini-sheet i.mini-name {
+  width: 55%;
+  height: 8px;
+  background: #374151;
+}
+.mini-sheet i.mini-bar {
+  height: 2px;
+  margin-bottom: 4px;
+  background: #374151;
+}
+.mini-stamp {
+  position: absolute;
+  left: 14px;
+  bottom: 22px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px 3px 6px;
+  border: 2.5px solid currentColor;
+  border-radius: 8px;
+  color: var(--pen);
+  font: 700 13px/1.2 var(--mono);
+  opacity: 0.9;
+  rotate: -8deg;
+  mix-blend-mode: multiply;
+}
+
 .commands {
   margin-bottom: 28px;
 }
@@ -1397,29 +1614,78 @@ pre.error,
   color: var(--muted);
 }
 
+/* Credits: the cast, the name, the license, the fonts. */
 .site-foot {
   box-sizing: border-box;
-  max-width: 1120px;
-  margin: clamp(96px, 10vw, 160px) auto 0;
-  padding: 24px 16px max(40px, env(safe-area-inset-bottom));
-  color: var(--muted);
-  font-size: 14px;
+  max-width: 1160px;
+  margin: 0 auto;
+  padding: clamp(72px, 8vw, 136px) 16px max(40px, env(safe-area-inset-bottom));
 }
-.site-foot p {
+.cast-list {
+  position: relative;
+  display: grid;
+  gap: 36px 40px;
+  margin: 32px 0 0;
+  padding: 0;
+  list-style: none;
+}
+@media (min-width: 1100px) {
+  .cast-list {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+.cast-list > li {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+.cast-list .cat {
+  width: 84px;
+}
+.cast-list h3 {
+  margin: 4px 0 4px;
+  font: 600 19px/1.3 var(--ui);
+}
+.cast-list p {
   margin: 0;
+  font-size: 16px;
+  line-height: 1.55;
+}
+.cast-list .hand {
+  margin-top: 10px;
+  font-family: "Caveat", "Bradley Hand", "Segoe Print", cursive;
+  font-size: min(24px, 6vw);
+  line-height: 1.15;
+  white-space: nowrap;
+}
+.site-foot .fine {
+  max-width: 72ch;
+  margin: 64px 0 0;
   padding-top: 24px;
   border-top: 1px solid var(--tint);
+  color: var(--muted);
+  font: 14px/1.6 var(--ui);
 }
-.site-foot a {
+.site-foot .fine a {
   color: inherit;
 }
 
+@media (max-width: 599px) {
+  .cast-list > li {
+    grid-template-columns: 64px minmax(0, 1fr);
+    gap: 16px;
+  }
+  .cast-list .cat {
+    width: 64px;
+  }
+}
 @media (max-width: 799px) {
   .sheets {
     grid-template-columns: none;
     grid-auto-flow: column;
     grid-auto-columns: 78%;
-    margin: 0 -16px 48px;
+    margin: 0 -16px 56px;
     padding: 8px 16px 24px;
     overflow-x: auto;
     overscroll-behavior-x: contain;
@@ -1431,21 +1697,11 @@ pre.error,
     scroll-snap-align: start;
   }
   .tour > li {
-    padding-left: 44px;
+    padding-left: 40px;
   }
   .tour > li::before {
-    left: 13px;
-  }
-  .tour > li::after {
-    width: 28px;
-    height: 28px;
-    font-size: 14px;
-  }
-  .tour > li:first-child::before {
-    top: 14px;
-  }
-  .tour > li:last-child::before {
-    height: 14px;
+    left: 0;
+    font-size: 36px;
   }
   pre {
     font-size: 13px;
@@ -1965,6 +2221,10 @@ pre.error,
 .pen-mark[data-ink="paper"],
 .pen-note[data-ink="paper"] {
   color: var(--pen);
+}
+/* On a terminal card (dark in both themes). */
+.pen-mark[data-ink="term"] {
+  color: #fb923c;
 }
 
 /* ------------------------------------------------------------------------------------------
