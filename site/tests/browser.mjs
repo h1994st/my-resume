@@ -164,8 +164,9 @@ const KEYS = {
   " ": { key: " ", code: "Space", keyCode: 32, text: " " },
   ArrowLeft: { key: "ArrowLeft", code: "ArrowLeft", keyCode: 37 },
   ArrowRight: { key: "ArrowRight", code: "ArrowRight", keyCode: 39 },
+  Tab: { key: "Tab", code: "Tab", keyCode: 9 },
   ...Object.fromEntries(
-    "12345".split("").map((d) => [d, { key: d, code: `Digit${d}`, keyCode: 48 + +d, text: d }]),
+    "123456789".split("").map((d) => [d, { key: d, code: `Digit${d}`, keyCode: 48 + +d, text: d }]),
   ),
 };
 
@@ -289,6 +290,11 @@ class Page {
     await this.send("Input.dispatchKeyEvent", { type: "keyUp", ...common });
   }
 
+  // The mouse pointer moved to (x, y) in CSS px.
+  mouse(x, y) {
+    return this.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
+  }
+
   // A touch swipe from (x0, y0) to (x1, y1) in CSS px.
   async swipe(x0, y0, x1, y1, steps = 8) {
     const point = (x, y) => [{ x, y, id: 1 }];
@@ -405,249 +411,424 @@ async function main() {
 
 const REDUCED = [{ name: "prefers-reduced-motion", value: "reduce" }];
 
-// The terminal's rendered blocks (text), and what the terminal renders instantly for the end state
-// of step i (built in a detached terminal from acts.js), for comparison.
-const termState = (page) =>
+// Everything a film frame shows, measured: each actor (place, pose, highlight, text), each pen
+// mark and note (where, which path, how far drawn), the camera, and the caption; plus the
+// film's state and the script animations still running (CSS pose loops don't count). Two equal
+// snapshots are the same frame.
+const frameState = (page) =>
   page.eval(() => {
-    const blocks = [...document.querySelectorAll("#term .t-log > .t-line")];
-    return blocks.map((b) => b.textContent);
+    const { film } = window.__demo;
+    const world = film.world;
+    const hash = (s) => {
+      let h = 2166136261;
+      for (const c of s) h = Math.imul(h ^ c.codePointAt(0), 16777619);
+      return (h >>> 0).toString(16);
+    };
+    const text = (el) => el.textContent.replace(/\s+/g, " ").trim();
+    const actors = [...world.querySelectorAll(":scope > [data-actor]")]
+      .map((el) => {
+        const cs = getComputedStyle(el);
+        return {
+          id: el.dataset.actor,
+          kind: el.dataset.kind,
+          box: [el.offsetLeft, el.offsetTop, el.offsetWidth, el.offsetHeight],
+          rotate: cs.rotate,
+          z: cs.zIndex,
+          moved: [cs.translate, cs.scale, cs.opacity],
+          pose: el.dataset.pose ?? null,
+          proof: el.dataset.proof ?? null,
+          hl: el.querySelectorAll(".is-hl").length,
+          text: hash(text(el)),
+        };
+      })
+      .sort((a, b) => a.id.localeCompare(b.id));
+    const pen = [...world.querySelectorAll(".pen-mark, .pen-note")].map((el) => ({
+      layer: el.parentElement.dataset.actor ?? "world",
+      cls: el.getAttribute("class"),
+      kind: el.dataset.kind ?? null,
+      ink: el.dataset.ink,
+      at: [el.style.left, el.style.top],
+      d: [...el.querySelectorAll("path")].map((p) => p.getAttribute("d")).join(" | "),
+      drawn: [...el.querySelectorAll("path")].map((p) => getComputedStyle(p).strokeDashoffset),
+      text: el.classList.contains("pen-note") ? el.textContent : null,
+      clip: getComputedStyle(el).clipPath,
+    }));
+    return {
+      scene: film.scene,
+      playing: film.playing,
+      camera: getComputedStyle(world).transform,
+      caption: document.querySelector(".film-line").textContent,
+      ghosts: world.querySelectorAll("[data-ghost]").length,
+      typing: world.querySelectorAll(".is-typing").length,
+      actors,
+      pen,
+      animations: document
+        .getAnimations()
+        .filter((a) => !(a instanceof CSSAnimation) && !(a instanceof CSSTransition))
+        .filter((a) => a.playState === "running").length,
+    };
   });
-const expectedTerm = (page, stepIndex) =>
-  page.eval(async (i) => {
-    const { ACTS } = await import("./acts.js");
-    const { createTerminal } = await import("./terminal.js");
-    const steps = ACTS.flatMap((a) => a.steps);
-    const el = document.createElement("div");
-    const t = createTerminal(el);
-    t.renderInstant(steps.slice(0, i + 1).flatMap((s) => s.lines));
-    return [...el.querySelectorAll(".t-log > .t-line")].map((b) => b.textContent);
-  }, stepIndex);
-const firstStepOfAct = (page, act) =>
-  page.eval(async (n) => {
-    const { ACTS } = await import("./acts.js");
-    return ACTS.slice(0, n - 1).reduce((sum, a) => sum + a.steps.length, 0);
-  }, act);
 
-// --- Tests: the player -----------------------------------------------------------------------
+// The film after its first look at the viewport (autoplay may have started), paused.
+const pausedFilm = async (page) => {
+  await page.waitFor(() => window.__demo.film.seen);
+  await page.eval(() => window.__demo.film.pause());
+};
 
-test("jumping between acts mid-playback renders the target step's end state", async ({
+// Resolves once the page has stopped scrolling (scrollY the same for 6 frames in a row).
+const settled = (page) =>
+  page.eval(
+    () =>
+      new Promise((resolve) => {
+        let last = scrollY;
+        let still = 0;
+        const tick = () => {
+          still = scrollY === last ? still + 1 : 0;
+          last = scrollY;
+          if (still >= 6) resolve(true);
+          else requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      }),
+  );
+
+const sceneNames = (page) =>
+  page.eval(async () => (await import("./scenes.js")).SCENES.map((s) => [s.id, s.name]));
+
+// --- Tests: the film -------------------------------------------------------------------------
+
+test("film: a jump during a camera move renders the scene's end frame, and it stays", async ({
   newPage,
 }) => {
   const page = await newPage();
   await page.goto("/");
-  await page.eval(() => window.__demo.player.play());
-  await sleep(700); // mid-animation of the first step
+  await page.waitFor(() => window.__demo.film.playing);
+  await page.waitFor(() => window.__demo.film.camera.moving, { timeout: 20_000 });
   await page.eval(() => {
-    window.__demo.player.goToAct(5);
-    window.__demo.player.goToAct(2);
+    window.__demo.film.goTo(2);
+    window.__demo.film.goTo(1);
   });
-  const target = await firstStepOfAct(page, 2);
-  const check = async () => {
-    const [got, want] = [await termState(page), await expectedTerm(page, target)];
-    assert.equal(got.at(-1), want.at(-1), "terminal's last line");
-    assert.deepEqual(got, want, "terminal content");
-    assert.equal(await page.eval(() => window.__demo.resume.pageCount()), 2, "replica pages");
-    assert.equal(await page.eval(() => window.__demo.player.step), target, "player step");
-  };
-  await check();
-  await sleep(2500); // the aborted step must not write anything later
-  await check();
-  assert.equal(await page.eval(() => window.__demo.player.playing), false, "jumping pauses");
+  const jumped = await frameState(page);
+  assert.equal(jumped.scene, 1, "on scene 2");
+  assert.equal(jumped.playing, false, "jumping pauses");
+  assert.equal(jumped.animations, 0, "nothing in flight");
+  assert.equal(jumped.ghosts, 0, "no fading leftovers");
+  assert.ok(jumped.actors.length >= 2 && jumped.pen.length >= 2, "the scene is on the desk");
+  await page.eval(() => window.__demo.film.renderEnd(1));
+  assert.deepEqual(await frameState(page), jumped, "a fresh end frame is the same frame");
+  await sleep(2000); // an aborted cue must not draw anything later
+  assert.deepEqual(await frameState(page), jumped, "nothing changes 2 s later");
 });
 
-test("stepping through every step reaches the end state of each act", async ({ newPage }) => {
-  const page = await newPage();
-  await page.goto("/");
-  const trace = await page.eval(async () => {
-    const { ACTS } = await import("./acts.js");
-    const { player, resume } = window.__demo;
-    player.goTo(0);
-    const total = ACTS.reduce((n, a) => n + a.steps.length, 0);
-    const out = [];
-    for (let i = 1; i < total; i++) {
-      player.next();
-      out.push({
-        step: player.step,
-        act: player.act,
-        pages: resume.pageCount(),
-        granary: Boolean(document.querySelector('.resume [data-id="granary"]')),
-        current: document.querySelector('.ctl-act[aria-current="step"]')?.dataset.act,
-      });
-    }
-    player.next(); // past the end: stays on the last step
-    return { out, total, last: player.step };
-  });
-  assert.equal(trace.out.length, trace.total - 1);
-  trace.out.forEach((s, k) => {
-    assert.equal(s.step, k + 1, "next() advances one step");
-    assert.equal(s.current, String(s.act), "the current act chip is marked");
-  });
-  assert.equal(trace.last, trace.total - 1, "next() at the end stays on the last step");
-  const lastOf = (act) => trace.out.findLast((s) => s.act === act);
-  assert.equal(lastOf(2).pages, 1, "after act 2 the variant fits one page");
-  for (const s of trace.out.filter((s) => s.act === 3)) assert.equal(s.pages, 1, "act 3: 1 page");
-  assert.ok(lastOf(5).granary, "after act 5 the granary role is on the page");
-  assert.ok(!lastOf(4).granary, "the granary role appears only in act 5");
-});
-
-test("space while the stage is out of view scrolls the page and leaves playback alone", async ({
+test("film: a jump while a type cue types renders the scene's end frame, and it stays", async ({
   newPage,
 }) => {
   const page = await newPage();
   await page.goto("/");
+  await page.waitFor(() => window.__demo.film.busy.includes("type"), { timeout: 20_000 });
+  const partial = await page.eval(
+    () => document.querySelector(".film-world .is-typing")?.textContent,
+  );
+  assert.equal(typeof partial, "string", "a file name is being typed");
+  await page.eval(() => window.__demo.film.goTo(2));
+  const jumped = await frameState(page);
+  assert.deepEqual([jumped.scene, jumped.playing, jumped.typing], [2, false, 0]);
+  await page.eval(() => window.__demo.film.renderEnd(2));
+  assert.deepEqual(await frameState(page), jumped, "a fresh end frame is the same frame");
+  await sleep(2000);
+  assert.deepEqual(await frameState(page), jumped, "nothing changes 2 s later");
+  // Back to scene 1: its file names are typed in full.
+  const names = await page.eval(() => {
+    window.__demo.film.goTo(0);
+    return [...document.querySelectorAll(".film-world .copy-file-name")].map((n) => n.textContent);
+  });
+  assert.deepEqual(names, ["resume_v2.pdf", "resume_final.pdf", "resume_FINAL_v3.pdf"]);
+});
+
+test("film: playing each scene through ends on the frame a jump renders", async ({ newPage }) => {
+  const page = await newPage();
+  await page.goto("/");
+  const steps = await page.eval(async () =>
+    (await import("./scenes.js")).SCENES.map((s) => s.steps.length),
+  );
+  await page.waitFor(() => window.__demo.film.playing);
+  for (let n = 0; n < steps.length; n++) {
+    // Scene n has played its last step and rests on it (autoplay holds there).
+    await page.waitFor(
+      ([scene, last]) => {
+        const { film } = window.__demo;
+        return film.scene === scene && film.step === last && !film.animating;
+      },
+      { args: [[n, steps[n] - 1]], timeout: 40_000 },
+    );
+    await page.eval(() => window.__demo.film.pause());
+    await page.frames(2);
+    const played = await frameState(page);
+    assert.equal(played.ghosts, 0, `scene ${n + 1}: no fading leftovers`);
+    await page.eval((i) => window.__demo.film.renderEnd(i), n);
+    assert.deepEqual(await frameState(page), played, `scene ${n + 1}: played = end frame`);
+    await page.eval(() => window.__demo.film.play()); // on to the next scene
+  }
+});
+
+test("film: playing a scene after a jump to it keeps its actors on the desk", async ({
+  newPage,
+}) => {
+  const page = await newPage();
+  await page.goto("/");
+  await pausedFilm(page);
+  // The end frame fades out as the scene starts over; the replica it enters again is reused.
+  await page.eval(() => {
+    window.__demo.film.goTo(1);
+    window.__demo.film.play();
+  });
+  await page.waitFor(() => window.__demo.film.step >= 1, { timeout: 15_000 });
+  await sleep(500); // past the fade-out of the old end frame
+  const got = await page.eval(() => {
+    const el = window.__demo.film.actor("resume");
+    return {
+      onDesk: Boolean(el?.isConnected),
+      ghost: el ? "ghost" in el.dataset : null,
+      opacity: el && getComputedStyle(el).opacity,
+    };
+  });
+  assert.deepEqual(got, { onDesk: true, ghost: false, opacity: "1" });
+});
+
+test("film: the controls fade after 2.5 s while playing and come back", async ({ newPage }) => {
+  const page = await newPage();
+  await page.goto("/");
+  await page.waitFor(() => window.__demo.film.playing);
+  const controls = () =>
+    page.eval(() => ({
+      state: document.getElementById("film").dataset.controls,
+      opacity: getComputedStyle(document.querySelector(".film-controls")).opacity,
+    }));
+  const hidden = () => document.getElementById("film").dataset.controls === "hidden";
+  let t0 = Date.now();
+  await page.waitFor(hidden, { timeout: 8000 });
+  assert.ok(Date.now() - t0 >= 2000, `hidden after ${Date.now() - t0} ms`);
+  await page.waitFor(
+    () => getComputedStyle(document.querySelector(".film-controls")).opacity === "0",
+  );
+  // Pointer movement brings them back, and they fade again.
+  await page.mouse(640, 300);
+  assert.equal((await controls()).state, "shown", "back on pointer move");
+  t0 = Date.now();
+  await page.waitFor(hidden, { timeout: 8000 });
+  assert.ok(Date.now() - t0 >= 2000, "fade again after stillness");
+  // Keyboard focus brings them back and keeps them.
+  for (let i = 0; i < 8; i++) {
+    const inside = await page.eval(() =>
+      document.querySelector(".film-controls").contains(document.activeElement),
+    );
+    if (inside) break;
+    await page.key("Tab");
+  }
+  assert.ok(
+    await page.eval(() =>
+      document.querySelector(".film-controls").contains(document.activeElement),
+    ),
+    "Tab reaches the controls",
+  );
+  assert.equal((await controls()).state, "shown", "back on focus");
+  await sleep(3000);
+  assert.equal((await controls()).state, "shown", "kept while focused");
+  assert.equal(await page.eval(() => window.__demo.film.playing), true, "still playing");
+  // Paused: always shown.
+  await page.eval(() => {
+    document.activeElement.blur();
+    window.__demo.film.pause();
+  });
+  await sleep(3000);
+  assert.deepEqual(await controls(), { state: "shown", opacity: "1" }, "shown while paused");
+});
+
+test("film: reduced motion: no autoplay, camera cuts, end frames at once", async ({ newPage }) => {
+  const page = await newPage({ media: REDUCED });
+  await page.goto("/");
+  await page.waitFor(() => window.__demo.film.seen);
+  await page.frames(4);
+  assert.deepEqual(
+    await page.eval(() => [window.__demo.film.playing, window.__demo.film.scene]),
+    [false, 0],
+    "no autoplay",
+  );
+  const cut = await page.eval(async () => {
+    const { film } = window.__demo;
+    const before = getComputedStyle(film.world).transform;
+    const done = film.camera.frame({ x: 0, y: 0, w: 300, h: 200 });
+    const now = getComputedStyle(film.world).transform;
+    const moving = film.camera.moving;
+    await done;
+    return { cut: before !== now, moving, animations: film.world.getAnimations().length };
+  });
+  assert.deepEqual(cut, { cut: true, moving: false, animations: 0 }, "camera.frame cuts");
+  const scripted = () =>
+    page.eval(
+      () =>
+        document
+          .getAnimations()
+          .filter((a) => !(a instanceof CSSAnimation) && !(a instanceof CSSTransition)).length,
+    );
+  await page.eval(() => window.__demo.film.next());
+  assert.equal(await scripted(), 0, "next: no animations");
+  const end = await frameState(page);
+  await page.eval(() => window.__demo.film.renderEnd(1));
+  assert.deepEqual(await frameState(page), end, "next shows the end frame");
+  // Playing shows each step's end frame at once, then rests and moves on.
+  await page.eval(() => window.__demo.film.play());
+  assert.equal(await scripted(), 0, "play: no animations");
+  await page.waitFor(() => window.__demo.film.step >= 1, { timeout: 10_000 });
+  assert.equal(await scripted(), 0, "the next step: no animations");
+  await sleep(3000);
+  assert.equal(
+    await page.eval(() => document.getElementById("film").dataset.controls),
+    "shown",
+    "controls stay with reduced motion",
+  );
+});
+
+test("film: keys work only in view and with focus on the page or the film", async ({ newPage }) => {
+  const page = await newPage();
+  await page.goto("/");
+  await page.waitFor(() => window.__demo.film.playing); // autoplay began: the observer has fired
   await page.eval(() => {
     const spacer = document.createElement("div");
     spacer.style.height = "4000px";
     document.body.append(spacer);
-    window.__demo.player.pause();
-    const stage = document.getElementById("stage");
-    scrollTo(0, stage.offsetTop + stage.offsetHeight + 200);
+    window.__demo.film.pause();
+    const film = document.getElementById("film");
+    scrollTo(0, film.offsetTop + film.offsetHeight + 200);
   });
-  await page.frames(3);
-  await sleep(150);
-  const before = await page.eval(() => ({ y: scrollY, playing: window.__demo.player.playing }));
+  await page.waitFor(() => !window.__demo.film.inView);
+  const y0 = await page.eval(() => scrollY);
   await page.key(" ");
-  await page.frames(3);
-  await sleep(300);
-  const after = await page.eval(() => ({ y: scrollY, playing: window.__demo.player.playing }));
-  assert.equal(after.playing, before.playing, "playback did not toggle");
-  assert.ok(after.y > before.y, `the page scrolled (${before.y} → ${after.y})`);
+  await page.waitFor((y) => scrollY > y, { args: [y0], timeout: 5000 });
+  await settled(page); // Space scrolls smoothly: let it finish before scrolling back
+  assert.equal(await page.eval(() => window.__demo.film.playing), false, "space out of view");
 
-  // Control: back in view, space toggles playback and the page stays put.
+  // Back in view, Space toggles playback and the page stays put.
   await page.eval(() => scrollTo(0, 0));
-  await page.frames(3);
-  await sleep(150);
+  await settled(page);
+  await page.waitFor(() => window.__demo.film.inView && scrollY === 0);
   await page.key(" ");
-  await page.frames(2);
-  const inView = await page.eval(() => ({ y: scrollY, playing: window.__demo.player.playing }));
-  assert.equal(inView.playing, true, "space in view toggles playback");
-  assert.equal(inView.y, 0, "space in view does not scroll");
+  await page.waitFor(() => window.__demo.film.playing, { timeout: 5000 });
+  assert.equal(await page.eval(() => scrollY), 0, "space in view does not scroll");
   await page.key("ArrowRight");
+  assert.equal(await page.eval(() => window.__demo.film.playing), false, "a key jump pauses");
   await page.key("3");
-  const third = await firstStepOfAct(page, 3);
-  assert.equal(await page.eval(() => window.__demo.player.step), third, "digit keys jump to acts");
+  assert.equal(await page.eval(() => window.__demo.film.scene), 2, "digit keys jump to scenes");
+  await page.key("ArrowLeft");
+  assert.equal(await page.eval(() => window.__demo.film.scene), 1, "← steps back");
+
+  // Focus elsewhere on the page: the keys are the page's.
+  await page.eval(() => document.querySelector("#get-started a").focus({ preventScroll: true }));
+  await page.key("ArrowRight");
+  await page.key("1");
+  assert.equal(await page.eval(() => window.__demo.film.scene), 1, "keys ignored");
 });
 
-test("controls, swipe, and events", async ({ newPage }) => {
+test("film: controls, swipes, and events", async ({ newPage }) => {
   const page = await newPage({ width: 390, height: 844, mobile: true, deviceScaleFactor: 2 });
   await page.goto("/");
+  await pausedFilm(page);
+  const names = await sceneNames(page);
   await page.eval(() => {
-    window.__demo.player.pause();
     window.__demo.events.length = 0;
   });
-  // A chip click jumps to its act; prev/next buttons step.
-  await page.eval(() => document.querySelector('.ctl-act[data-act="4"]').click());
-  const four = await firstStepOfAct(page, 4);
-  assert.equal(await page.eval(() => window.__demo.player.step), four);
+  const scene = () => page.eval(() => window.__demo.film.scene);
+  await page.eval(() => document.querySelector('.fc-seg[data-scene="2"]').click());
+  assert.equal(await scene(), 1, "a chapter jumps to its scene");
   await page.eval(() => document.querySelector('[data-ctl="next"]').click());
+  assert.equal(await scene(), 2, "next");
   await page.eval(() => document.querySelector('[data-ctl="prev"]').click());
-  assert.equal(await page.eval(() => window.__demo.player.step), four);
-  // A left swipe on the stage steps forward, a right swipe steps back.
+  assert.equal(await scene(), 1, "prev");
+  // Swipes on the film step: right goes back, left goes on.
   const box = await page.eval(() => {
-    const r = document.getElementById("stage").getBoundingClientRect();
-    return { x: r.left + r.width / 2, y: r.top + Math.min(r.height / 2, 200) };
+    const r = document.getElementById("film").getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height * 0.3 };
   });
-  await page.swipe(box.x + 80, box.y, box.x - 80, box.y);
-  assert.equal(await page.eval(() => window.__demo.player.step), four + 1, "left swipe: next");
   await page.swipe(box.x - 80, box.y, box.x + 80, box.y);
-  assert.equal(await page.eval(() => window.__demo.player.step), four, "right swipe: prev");
-  // On a phone the chips show only their numbers; their names stay in the accessible name.
-  assert.deepEqual(
-    await page.eval(() =>
-      [...document.querySelectorAll(".ctl-act")].map((c) => c.getAttribute("aria-label")),
-    ),
-    ["Act 1: Facts", "Act 2: Tailor", "Act 3: Check", "Act 4: Submit", "Act 5: Update"],
+  assert.equal(await scene(), 0, "right swipe: prev");
+  await page.swipe(box.x + 80, box.y, box.x - 80, box.y);
+  assert.equal(await scene(), 1, "left swipe: next");
+  // Chapters are named for assistive tech; the current one is marked.
+  const chapters = await page.eval(() =>
+    [...document.querySelectorAll(".fc-seg")].map((c) => [
+      c.getAttribute("aria-label"),
+      c.getAttribute("aria-current"),
+    ]),
   );
-  // Play button toggles.
+  assert.deepEqual(
+    chapters,
+    names.map(([, name], i) => [`Scene ${i + 1}: ${name}`, i === 1 ? "step" : null]),
+  );
+  // The play button toggles.
   await page.eval(() => document.querySelector('[data-ctl="play"]').click());
-  assert.equal(await page.eval(() => window.__demo.player.playing), true);
+  assert.equal(await page.eval(() => window.__demo.film.playing), true);
+  assert.equal(
+    await page.eval(() => document.querySelector('[data-ctl="play"]').getAttribute("aria-label")),
+    "Pause",
+  );
   await page.eval(() => document.querySelector('[data-ctl="play"]').click());
-  assert.equal(await page.eval(() => window.__demo.player.playing), false);
-  // Jump to the last act and step to the end.
-  await page.eval(() => {
-    window.__demo.player.goToAct(5);
-    while (window.__demo.player.step < window.__demo.player.stepCount - 1)
-      window.__demo.player.next();
-  });
+  assert.equal(await page.eval(() => window.__demo.film.playing), false);
+  // To the end.
+  await page.eval(() => window.__demo.film.goTo(window.__demo.film.sceneCount - 1));
   const events = await page.eval(() => window.__demo.events);
-  const names = events.map((e) => e.name);
   assert.deepEqual(
     events.filter((e) => e.name === "interact").map((e) => e.params.method),
-    ["act_chip", "step", "step", "swipe", "swipe", "play", "play"],
+    ["chapter", "step", "step", "swipe", "swipe", "play", "play"],
   );
+  const last = names.length - 1;
   assert.deepEqual(
     events.filter((e) => e.name === "act").map((e) => e.params),
-    [
-      { act: 4, act_name: "submit" },
-      { act: 5, act_name: "update" },
-    ],
+    [1, 2, 1, 0, 1, last].map((i) => ({ act: i + 1, act_name: names[i][0] })),
   );
   assert.deepEqual(events.at(-1), { name: "complete", params: { method: "manual" } });
-  assert.equal(names.filter((n) => n === "complete").length, 1);
-  assert.equal(
-    await page.eval(() => getComputedStyle(document.querySelector(".demo-tag")).display !== "none"),
-    true,
-    "act 5 shows the demo-step tag",
+  // The live region names the scene; the transcript has every caption.
+  const a11y = await page.eval(() => ({
+    live: document.querySelector("[data-film-live]").textContent,
+    role: document.getElementById("film").getAttribute("aria-roledescription"),
+    hidden: document.querySelector(".film-viewport").getAttribute("aria-hidden"),
+    transcript: document.querySelector(".film .visually-hidden ol").textContent,
+  }));
+  assert.match(a11y.live, new RegExp(`^Scene ${last + 1} of ${last + 1}, `));
+  assert.equal(a11y.role, "demo");
+  assert.equal(a11y.hidden, "true");
+  const captions = await page.eval(async () =>
+    (await import("./scenes.js")).SCENES.map((s) => s.caption.replace(/\*/g, "")),
   );
+  for (const c of captions) assert.ok(a11y.transcript.includes(c), `transcript: ${c}`);
+  // A swipe that starts on the controls doesn't step.
+  for (const sel of [".fc-chapters", ".fc-buttons"]) {
+    const at = await page.eval((s) => {
+      const r = document.querySelector(s).getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    }, sel);
+    const before = await scene();
+    await page.swipe(at.x - 60, at.y, at.x + 60, at.y);
+    assert.equal(await scene(), before, `swipe on ${sel}`);
+  }
   assert.ok(
     await page.eval(() => document.documentElement.scrollWidth <= innerWidth),
     "no horizontal scroll",
   );
 });
 
-test("autoplay starts on its own and plays through the first steps", async ({ newPage }) => {
+test("film: autoplay starts on its own, as an act, not an interaction", async ({ newPage }) => {
   const page = await newPage();
   await page.goto("/");
-  await page.waitFor(() => window.__demo.player.playing);
-  await page.waitFor(() => window.__demo.player.step >= 1, { timeout: 20_000 });
+  await page.waitFor(() => window.__demo.film.playing);
   const events = await page.eval(() => window.__demo.events);
-  assert.deepEqual(events[0], { name: "act", params: { act: 1, act_name: "facts" } });
+  assert.deepEqual(events[0], { name: "act", params: { act: 1, act_name: "problem" } });
   assert.ok(!events.some((e) => e.name === "interact"), "autoplay is not an interaction");
 });
 
-test("reduced motion: no autoplay, steps render instantly", async ({ newPage }) => {
-  const page = await newPage({ media: REDUCED });
+test("film: autoplay starts in a phone held sideways", async ({ newPage }) => {
+  const page = await newPage({ width: 844, height: 390, mobile: true, deviceScaleFactor: 2 });
   await page.goto("/");
-  await sleep(3000);
-  assert.equal(await page.eval(() => window.__demo.player.step), 0, "no autoplay");
-  assert.equal(await page.eval(() => window.__demo.player.playing), false);
-  const got = await page.eval(() => {
-    window.__demo.player.next();
-    return {
-      animations: document.getAnimations().length,
-      ghosts: document.querySelectorAll(".r-ghost").length,
-      blocks: [...document.querySelectorAll("#term .t-log > .t-line")].map((b) => b.textContent),
-    };
-  });
-  assert.equal(got.animations, 0, "no animations");
-  assert.equal(got.ghosts, 0, "no ghosts");
-  assert.deepEqual(got.blocks, await expectedTerm(page, 1), "end state rendered at once");
-  // Pressing play shows each step's end state at once (no typing), then holds and advances.
-  await page.eval(() => window.__demo.player.play());
-  await sleep(150);
-  assert.deepEqual(await termState(page), await expectedTerm(page, 1), "play: no typing");
-  await page.waitFor(() => window.__demo.player.step >= 2, { timeout: 10_000 });
-  await sleep(150);
-  assert.deepEqual(await termState(page), await expectedTerm(page, 2), "next step at once");
-  assert.equal(await page.eval(() => document.getAnimations().length), 0);
-});
-
-test("the terminal stays scrolled to its last line after every jump", async ({ newPage }) => {
-  const page = await newPage();
-  await page.goto("/");
-  await page.eval(() => window.__demo.player.pause());
-  const count = await page.eval(() => window.__demo.player.stepCount);
-  for (const order of [[...Array(count).keys()], [...Array(count).keys()].reverse()]) {
-    for (const i of order) {
-      await page.eval((n) => window.__demo.player.goTo(n), i);
-      await page.frames(3);
-      const gap = await page.eval(() => {
-        const log = document.querySelector("#term .t-log");
-        return Math.round(log.scrollHeight - log.scrollTop - log.clientHeight);
-      });
-      assert.ok(gap <= 1, `step ${i}: ${gap}px below the visible part of the log`);
-    }
-  }
+  await page.waitFor(() => window.__demo.film.playing, { timeout: 5000 });
 });
 
 // --- Tests: layout and sections --------------------------------------------------------------
@@ -660,285 +841,94 @@ const SIZES = [
   [2560, 1440],
 ];
 
-// Goes to the end state of act n (paused).
-const endOfAct = (page, n) =>
-  page.eval(async (act) => {
-    const { ACTS } = await import("./acts.js");
-    const end = ACTS.slice(0, act).reduce((sum, a) => sum + a.steps.length, 0) - 1;
-    window.__demo.player.pause();
-    window.__demo.player.goTo(end);
-  }, n);
-
-// Geometry of the stage at the top of the page.
-const layout = (page) =>
+// Geometry of the film at the top of the page.
+const filmLayout = (page) =>
   page.eval(() => {
     scrollTo(0, 0);
-    const rect = (sel) => document.querySelector(sel).getBoundingClientRect().toJSON();
-    const term = document.querySelector("#term");
-    const probe = document.createElement("span");
-    probe.textContent = "0".repeat(20);
-    probe.style.cssText = "position:absolute;visibility:hidden;white-space:pre";
-    term.append(probe);
-    const ch = probe.getBoundingClientRect().width / 20;
-    probe.remove();
-    const col = document.getElementById("page-col");
-    const cs = getComputedStyle(col);
-    const box = document.getElementById("page-box");
-    const shown = [...document.querySelectorAll(".resume .r-sheet:not(.r-ghost)")].map((s) =>
-      s.getBoundingClientRect().toJSON(),
-    );
+    const rect = (el) => el.getBoundingClientRect().toJSON();
+    const q = (s) => document.querySelector(s);
     return {
       vw: innerWidth,
       vh: innerHeight,
       scrollWidth: document.documentElement.scrollWidth,
-      stacked: matchMedia(
-        "(max-width: 799px) and (orientation: portrait), (max-width: 799px) and (min-height: 501px)",
-      ).matches,
-      short: matchMedia("(max-height: 500px) and (orientation: landscape)").matches,
-      pages: window.__demo.resume.pageCount(),
-      scale: parseFloat(getComputedStyle(box).getPropertyValue("--s")),
-      stage: rect("#stage"),
-      col: rect("#page-col"),
-      colInner: {
-        left: col.getBoundingClientRect().left + parseFloat(cs.paddingLeft),
-        right: col.getBoundingClientRect().right - parseFloat(cs.paddingRight),
-        top: col.getBoundingClientRect().top + parseFloat(cs.paddingTop),
-        bottom: col.getBoundingClientRect().bottom - parseFloat(cs.paddingBottom),
-      },
-      box: rect("#page-box"),
-      caption: (() => {
-        const which = document.getElementById("stage").dataset.proof;
-        return which
-          ? document
-              .querySelector(`.proof[data-proof="${which}"] figcaption`)
-              .getBoundingClientRect()
-              .toJSON()
-          : null;
-      })(),
-      tag: (() => {
-        const el = document.querySelector(".demo-tag");
-        return getComputedStyle(el).display !== "none" ? el.getBoundingClientRect().toJSON() : null;
-      })(),
-      sheets: shown,
-      term: rect("#term"),
-      termCols: term.clientWidth / ch,
-      ctl: rect(".ctl"),
-      ctlLabel: (() => {
-        const el = document.querySelector(".ctl-label");
-        return getComputedStyle(el).display !== "none" ? el.getBoundingClientRect().toJSON() : null;
-      })(),
-      ctlItems: [...document.querySelectorAll(".ctl-btn, .ctl-act")].map((el) =>
-        el.getBoundingClientRect().toJSON(),
-      ),
-      indicator: (() => {
-        const el = document.querySelector(".page-switch");
-        return el && getComputedStyle(el).display !== "none"
-          ? el.getBoundingClientRect().toJSON()
-          : null;
-      })(),
+      header: rect(q(".site-title")),
+      film: rect(q("#film")),
+      controls: rect(q(".film-controls")),
+      targets: [...document.querySelectorAll(".fc-btn, .fc-seg")].map(rect),
+      label: rect(q(".fc-label")),
+      caption: rect(q(".film-caption")),
+      line: rect(q(".film-line")),
+      lineSize: parseFloat(getComputedStyle(q(".film-line")).fontSize),
+      focus: window.__demo.film.focus(),
     };
   });
 
-function checkLayout(m, label) {
+function checkFilmLayout(m, label) {
   const near = (a, b, tol = 1.5) => Math.abs(a - b) <= tol;
+  const inside = (r, box, tol = 1) =>
+    r.left >= box.left - tol &&
+    r.right <= box.right + tol &&
+    r.top >= box.top - tol &&
+    r.bottom <= box.bottom + tol;
+  const screen = { left: 0, top: 0, right: m.vw, bottom: m.vh };
+  const apart = (a, b) =>
+    a.right <= b.left || a.left >= b.right || a.bottom <= b.top || a.top >= b.bottom;
   assert.ok(m.scrollWidth <= m.vw, `${label}: horizontal scroll (${m.scrollWidth} > ${m.vw})`);
-  // The page box (what is shown of the spread) sits inside its column.
+  // The film fills the window under the one-line header.
+  assert.ok(near(m.film.top, m.header.bottom) && near(m.film.bottom, m.vh), `${label}: film box`);
+  assert.ok(near(m.film.left, 0) && near(m.film.right, m.vw), `${label}: film width`);
+  // Controls on screen, with 44 px targets, and the "replay" label clear of them.
+  assert.ok(inside(m.controls, screen), `${label}: controls off screen`);
+  for (const r of m.targets) {
+    assert.ok(r.width >= 44 && r.height >= 44, `${label}: a ${r.width}×${r.height} target`);
+    assert.ok(inside(r, screen), `${label}: a control off screen`);
+    assert.ok(apart(r, m.label), `${label}: "replay" overlaps a control`);
+  }
+  assert.ok(m.label.width > 0 && inside(m.label, screen), `${label}: "replay" label`);
+  // The caption: on screen, large, above the controls.
+  assert.ok(inside(m.line, screen), `${label}: caption off screen`);
+  assert.ok(m.caption.bottom <= m.controls.top + 1, `${label}: caption over the controls`);
+  assert.ok(m.lineSize >= 20, `${label}: caption ${m.lineSize}px`);
+  // The camera's target is in view, above the caption.
+  assert.ok(m.focus, `${label}: no shot`);
+  const free = { left: 0, right: m.vw, top: m.film.top, bottom: m.caption.top };
   assert.ok(
-    m.box.left >= m.colInner.left - 1 && m.box.right <= m.colInner.right + 1,
-    `${label}: page box ${m.box.left}–${m.box.right} outside column ${m.colInner.left}–${m.colInner.right}`,
+    inside(m.focus, free, 2),
+    `${label}: focus ${JSON.stringify(m.focus)} outside ${JSON.stringify(free)}`,
   );
-  if (!m.short) {
-    assert.ok(m.box.bottom <= m.colInner.bottom + 1, `${label}: page box overflows its column`);
-  }
-  // Controls are within the viewport.
-  assert.ok(m.ctl.top >= 0 && m.ctl.bottom <= m.vh + 0.5, `${label}: controls off screen`);
-  assert.ok(m.ctl.left >= 0 && m.ctl.right <= m.vw + 0.5, `${label}: controls too wide`);
-  // The "replay" label is on screen at every size, clear of the terminal and the controls.
-  assert.ok(m.ctlLabel && m.ctlLabel.width > 0, `${label}: no "replay" label`);
-  assert.ok(
-    m.ctlLabel.top >= m.term.bottom - 0.5 && m.ctlLabel.bottom <= m.vh + 0.5,
-    `${label}: "replay" label off screen or over the terminal`,
-  );
-  assert.ok(
-    m.ctlLabel.left >= 0 && m.ctlLabel.right <= m.vw + 0.5,
-    `${label}: "replay" label off screen`,
-  );
-  for (const r of m.ctlItems) {
-    const apart =
-      r.right <= m.ctlLabel.left ||
-      r.left >= m.ctlLabel.right ||
-      r.bottom <= m.ctlLabel.top ||
-      r.top >= m.ctlLabel.bottom;
-    assert.ok(apart, `${label}: "replay" label overlaps a control`);
-  }
-  // Act 3's "the real PDF" caption is in the visible part of the page column.
-  if (m.caption) {
-    assert.ok(
-      m.caption.top >= m.col.top - 0.5 &&
-        m.caption.bottom <= Math.min(m.col.bottom, m.vh) + 0.5 &&
-        m.caption.left >= m.col.left - 0.5 &&
-        m.caption.right <= m.col.right + 0.5,
-      `${label}: the real-PDF caption is out of sight`,
-    );
-  }
-  // Act 5's demo tag sits above the page, inside the column, never over resume content.
-  if (m.tag) {
-    assert.ok(m.tag.top >= m.col.top - 0.5, `${label}: demo tag above its column`);
-    for (const s of m.sheets) {
-      if (s.right <= m.tag.left || s.left >= m.tag.right) continue;
-      assert.ok(m.tag.bottom <= s.top + 0.5, `${label}: demo tag covers the page`);
-    }
-  }
-  if (m.short) {
-    // A short landscape window (a phone on its side): terminal | one page at a time, at the
-    // column's width (no smaller than on a phone held upright), scrolling inside its column;
-    // the stage and its controls fit the window.
-    assert.ok(near(m.stage.bottom, m.vh), `${label}: stage ends at ${m.stage.bottom}, not ${m.vh}`);
-    assert.ok(m.scale >= 0.43, `${label}: page scale ${m.scale.toFixed(3)}`);
-    assert.ok(
-      near(m.box.width, Math.min(m.colInner.right - m.colInner.left, 816), 2),
-      `${label}: page ${m.box.width}px wide in a ${m.colInner.right - m.colInner.left}px column`,
-    );
-    const inBox = m.sheets.filter((s) => s.left >= m.box.left - 1 && s.right <= m.box.right + 1);
-    assert.equal(inBox.length, 1, `${label}: one page shown`);
-    assert.equal(Boolean(m.indicator), m.pages > 1, `${label}: page switch shown iff 2 pages`);
-    if (m.indicator) {
-      assert.ok(
-        m.indicator.top >= m.col.top && m.indicator.bottom <= m.col.bottom + 1,
-        `${label}: page switch outside the visible column`,
-      );
-    }
-    assert.ok(m.term.right <= m.col.left, `${label}: terminal overlaps the page column`);
-    assert.ok(m.term.bottom <= m.ctl.top + 1, `${label}: terminal hidden under the controls`);
-    assert.ok(m.term.height >= 200, `${label}: terminal only ${m.term.height}px tall`);
-  } else if (m.stacked) {
-    // One page at a time, at the viewport's width less a 16px gutter on each side.
-    assert.ok(near(m.box.width, m.vw - 32, 2), `${label}: page ${m.box.width}px wide on a phone`);
-    const inBox = m.sheets.filter((s) => s.left >= m.box.left - 1 && s.right <= m.box.right + 1);
-    assert.equal(inBox.length, 1, `${label}: one page shown`);
-    assert.equal(Boolean(m.indicator), m.pages > 1, `${label}: page switch shown iff 2 pages`);
-    // The whole demo fits one screen: the terminal ends above the fixed controls.
-    assert.ok(
-      m.term.bottom <= m.ctl.top + 1,
-      `${label}: terminal hidden under the controls (${m.term.bottom} > ${m.ctl.top}; ${JSON.stringify({ col: m.col, term: m.term, ctl: m.ctl })})`,
-    );
-    assert.ok(m.term.height >= 200, `${label}: terminal only ${m.term.height}px tall`);
-  } else {
-    // Every page of the spread is visible inside the column.
-    for (const s of m.sheets) {
-      assert.ok(
-        s.left >= m.colInner.left - 1 && s.right <= m.colInner.right + 1,
-        `${label}: a page sticks out of its column`,
-      );
-    }
-    // The stage fills the window below the title line.
-    assert.ok(near(m.stage.bottom, m.vh), `${label}: stage ends at ${m.stage.bottom}, not ${m.vh}`);
-    // Both halves read well: a terminal of at least 56 columns, a page at least 0.4 scale, and a
-    // single page as tall as its column.
-    assert.ok(m.termCols >= 56, `${label}: terminal only ${m.termCols.toFixed(1)} columns`);
-    assert.ok(m.scale >= 0.4, `${label}: page scale ${m.scale.toFixed(3)}`);
-    if (m.pages === 1) {
-      assert.ok(
-        near(m.box.height, m.colInner.bottom - m.colInner.top, 2),
-        `${label}: one page ${m.box.height}px tall in a ${m.colInner.bottom - m.colInner.top}px column`,
-      );
-    }
-  }
 }
 
-test("layout: every act end at every size, with screenshots", async ({ newPage }) => {
+test("layout: every scene's end frame at every size, in both themes, with screenshots", async ({
+  newPage,
+}) => {
   const problems = [];
-  for (const [width, height] of SIZES) {
-    const page = await newPage({
-      width,
-      height,
-      mobile: width < 800 || height < 500,
-      deviceScaleFactor: 1,
-    });
-    await page.goto("/");
-    for (let act = 1; act <= 5; act++) {
-      await endOfAct(page, act);
-      await page.frames(2);
-      await sleep(400); // highlight transitions
-      await page.screenshot(`act-${act}-${width}x${height}`);
-      try {
-        checkLayout(await layout(page), `act ${act} at ${width}×${height}`);
-      } catch (err) {
-        problems.push(err.message.split("\n")[0]);
+  for (const theme of ["light", "dark"]) {
+    for (const [width, height] of SIZES) {
+      // Reduced motion holds each pose's key frame, so the screenshots are stable.
+      const page = await newPage({
+        width,
+        height,
+        mobile: width < 800 || height < 500,
+        deviceScaleFactor: 1,
+        media: [...scheme(theme), ...REDUCED],
+      });
+      await page.goto("/");
+      await pausedFilm(page);
+      const count = await page.eval(() => window.__demo.film.sceneCount);
+      for (let n = 0; n < count; n++) {
+        await page.eval((i) => window.__demo.film.goTo(i), n);
+        await page.frames(2);
+        await page.screenshot(`film-${n + 1}-${theme}-${width}x${height}`);
+        try {
+          checkFilmLayout(await filmLayout(page), `scene ${n + 1} at ${width}×${height} ${theme}`);
+        } catch (err) {
+          problems.push(err.message.split("\n")[0]);
+        }
       }
+      await page.close();
     }
-    await page.close();
   }
   assert.deepEqual(problems, []);
-});
-
-test("phone: one page at a time, with a page switch", async ({ newPage }) => {
-  const page = await newPage({ width: 390, height: 844, mobile: true, deviceScaleFactor: 2 });
-  await page.goto("/");
-  await endOfAct(page, 1);
-  await page.frames(2);
-  const second = () =>
-    page.eval(() => {
-      const box = document.getElementById("page-box").getBoundingClientRect();
-      const sheet = document.querySelectorAll(".resume .r-sheet")[1].getBoundingClientRect();
-      return Math.abs(sheet.left - box.left) < 2;
-    });
-  assert.equal(await second(), false, "page 1 shown first");
-  await page.eval(() => document.querySelector('.page-switch [data-page="2"]').click());
-  await sleep(500);
-  assert.equal(await second(), true, "page 2 shown after the switch");
-  assert.equal(
-    await page.eval(() =>
-      document.querySelector('.page-switch [data-page="2"]').getAttribute("aria-pressed"),
-    ),
-    "true",
-  );
-  // Back to one page: no switch; to two pages again: page 1 first.
-  await endOfAct(page, 2);
-  await page.frames(2);
-  assert.equal(
-    await page.eval(() => getComputedStyle(document.querySelector(".page-switch")).display),
-    "none",
-  );
-  await endOfAct(page, 5);
-  await page.frames(2);
-  await sleep(500);
-  assert.equal(await second(), false, "a new two-page state starts on page 1");
-  assert.equal(
-    await page.eval(() => window.__demo.player.step),
-    await page.eval(() => window.__demo.player.stepCount - 1),
-  );
-  checkLayout(await layout(page), "phone, act 5");
-});
-
-test("two pages to one zooms the page in (and jumps under reduced motion)", async ({ newPage }) => {
-  for (const media of [undefined, REDUCED]) {
-    const page = await newPage({ width: 1280, height: 720, media });
-    await page.goto("/");
-    await endOfAct(page, 1);
-    await page.frames(2);
-    const samples = await page.eval(
-      () =>
-        new Promise((resolve) => {
-          const box = document.getElementById("page-box");
-          const out = [box.getBoundingClientRect().height];
-          window.__demo.resume.render("granary", { animate: true });
-          const t0 = performance.now();
-          const tick = () => {
-            out.push(box.getBoundingClientRect().height);
-            if (performance.now() - t0 < 1500) requestAnimationFrame(tick);
-            else resolve(out);
-          };
-          requestAnimationFrame(tick);
-        }),
-    );
-    const [from, to] = [samples[0], samples.at(-1)];
-    assert.ok(to > from + 20, `one page is bigger than two (${from} → ${to})`);
-    const between = samples.filter((h) => h > from + 5 && h < to - 5).length;
-    if (media) assert.equal(between, 0, "reduced motion: no zoom frames");
-    else assert.ok(between >= 5, `zoom is animated (${between} frames in between)`);
-    await page.close();
-  }
 });
 
 test("the template and get-started sections", async ({ newPage }) => {
@@ -950,7 +940,7 @@ test("the template and get-started sections", async ({ newPage }) => {
   for (const [width, height] of SIZES) {
     const page = await newPage({ width, height, mobile: width < 800, deviceScaleFactor: 1 });
     await page.goto("/");
-    await page.eval(() => window.__demo.player.pause());
+    await page.eval(() => window.__demo.film.pause());
     const got = await page.eval(() => {
       const t = document.getElementById("template");
       const g = document.getElementById("get-started");
@@ -1025,51 +1015,6 @@ test("head: title, description, theme colour, Open Graph image, favicon", async 
   assert.match(head.icon ?? "", /^data:image\/svg\+xml,/);
 });
 
-// --- Tests: player gates ---------------------------------------------------------------------
-
-test("autoplay starts when a stage taller than two viewports fills the screen", async ({
-  newPage,
-}) => {
-  // A narrow landscape window just too tall for the short layout: the stacked stage is far taller
-  // than the viewport.
-  const page = await newPage({ width: 790, height: 520, mobile: true, deviceScaleFactor: 2 });
-  await page.goto("/");
-  const ratio = await page.eval(() => {
-    const r = document.getElementById("stage").getBoundingClientRect();
-    return r.height / innerHeight;
-  });
-  assert.ok(ratio > 2, `the stage is ${ratio.toFixed(2)}× the viewport (test premise)`);
-  await page.waitFor(() => window.__demo.player.playing, { timeout: 5000 });
-});
-
-test("a swipe on the control bar does not step the demo", async ({ newPage }) => {
-  const page = await newPage({ width: 390, height: 844, mobile: true, deviceScaleFactor: 2 });
-  await page.goto("/");
-  await page.eval(() => window.__demo.player.goToAct(2));
-  const before = await page.eval(() => window.__demo.player.step);
-  const row = await page.eval(() => {
-    const r = document.querySelector(".ctl-acts").getBoundingClientRect();
-    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-  });
-  await page.swipe(row.x + 80, row.y, row.x - 80, row.y);
-  assert.equal(await page.eval(() => window.__demo.player.step), before, "chip row swipe left");
-  await page.swipe(row.x - 80, row.y, row.x + 80, row.y);
-  assert.equal(await page.eval(() => window.__demo.player.step), before, "chip row swipe right");
-  const bar = await page.eval(() => {
-    const r = document.querySelector(".ctl-buttons").getBoundingClientRect();
-    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-  });
-  await page.swipe(bar.x + 60, bar.y, bar.x - 60, bar.y);
-  assert.equal(await page.eval(() => window.__demo.player.step), before, "button row swipe");
-  // Control: a swipe on the terminal still steps.
-  const term = await page.eval(() => {
-    const r = document.getElementById("term").getBoundingClientRect();
-    return { x: r.left + r.width / 2, y: r.top + Math.min(r.height / 2, 100) };
-  });
-  await page.swipe(term.x + 80, term.y, term.x - 80, term.y);
-  assert.equal(await page.eval(() => window.__demo.player.step), before + 1, "terminal swipe");
-});
-
 // --- Tests: themes, cast, and pen kit --------------------------------------------------------
 
 const scheme = (value) => [{ name: "prefers-color-scheme", value }];
@@ -1128,7 +1073,7 @@ test("theme: follows the system setting while nothing is stored", async ({ newPa
       pressed: "true",
       name: "Dark theme",
     });
-    await page.eval(() => window.__demo.player.pause());
+    await page.eval(() => window.__demo.film.pause());
     await page.screenshot(`theme-dark-${width}x${height}`);
     await page.screenshotOf("#template", `theme-dark-template-${width}x${height}`);
     await page.media(scheme("light"));
@@ -1571,14 +1516,15 @@ test("analytics: debug mode fills dataLayer with config and the three demo event
 }) => {
   const page = await newPage();
   await page.goto("/?analytics=debug");
-  await page.eval(() => window.__demo.player.pause());
+  await page.eval(() => window.__demo.film.pause());
   await page.waitFor(() => window.dataLayer?.some((c) => c[0] === "config"));
   await page.key("ArrowRight");
-  await page.eval(() => document.querySelector('.ctl-act[data-act="3"]').click());
+  await page.eval(() => document.querySelector('.fc-seg[data-scene="3"]').click());
   await page.eval(() => {
-    const { player } = window.__demo;
-    while (player.step < player.stepCount - 1) player.next();
+    const { film } = window.__demo;
+    while (film.scene < film.sceneCount - 1) film.next();
   });
+  const count = await page.eval(() => window.__demo.film.sceneCount);
   const acts = await page.eval(() => [
     ...new Set(window.__demo.events.filter((e) => e.name === "act").map((e) => e.params.act)),
   ]);
@@ -1599,7 +1545,7 @@ test("analytics: debug mode fills dataLayer with config and the three demo event
   );
   const shown = events.filter(([, n]) => n === "demo_act").map(([, , p]) => p.act);
   assert.deepEqual(shown, acts, "demo_act once per act, in order");
-  assert.ok([1, 3, 4, 5].every((a) => shown.includes(a)), `acts reached: ${shown}`);
+  for (let a = 2; a <= count; a++) assert.ok(shown.includes(a), `act ${a} reached: ${shown}`);
   assert.deepEqual(
     events.filter(([, n]) => n === "tutorial_complete"),
     [["event", "tutorial_complete", { method: "manual" }]],
@@ -1619,7 +1565,7 @@ test("analytics: off the site (127.0.0.1) nothing is set up or loaded", async ({
   const page = await newPage();
   await page.goto("/");
   await page.frames(4);
-  await page.eval(() => window.__demo.player.next());
+  await page.eval(() => window.__demo.film.next());
   assert.equal(await dataLayer(page), null);
   assert.equal(await page.eval(() => typeof window.gtag), "undefined");
   assert.equal(
@@ -1631,7 +1577,7 @@ test("analytics: off the site (127.0.0.1) nothing is set up or loaded", async ({
 test("analytics: a throwing gtag does not stop the demo", async ({ newPage }) => {
   const page = await newPage();
   await page.goto("/?analytics=debug");
-  await page.eval(() => window.__demo.player.pause());
+  await page.eval(() => window.__demo.film.pause());
   await page.waitFor(() => window.dataLayer?.some((c) => c[0] === "config"));
   await page.eval(() => {
     window.gtag = () => {
@@ -1639,11 +1585,11 @@ test("analytics: a throwing gtag does not stop the demo", async ({ newPage }) =>
     };
   });
   await page.eval(() => {
-    const { player } = window.__demo;
-    while (player.step < player.stepCount - 1) player.next();
+    const { film } = window.__demo;
+    while (film.scene < film.sceneCount - 1) film.next();
   });
   assert.equal(
-    await page.eval(() => window.__demo.player.step === window.__demo.player.stepCount - 1),
+    await page.eval(() => window.__demo.film.scene === window.__demo.film.sceneCount - 1),
     true,
   );
 });
@@ -1660,7 +1606,9 @@ test("no absolute script, stylesheet, or media URLs except Google's gtag", async
   for (const file of [
     "main.js",
     "analytics.js",
-    "player.js",
+    "film.js",
+    "camera.js",
+    "scenes.js",
     "theme.js",
     "cast.js",
     "pen.js",

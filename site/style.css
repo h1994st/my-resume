@@ -366,27 +366,9 @@
 }
 
 /* ------------------------------------------------------------------------------------------
-   Page layout, demo stage, and the sections below it (site/index.html, main.js, player.js).
+   Page layout, the film, and the sections below it (site/index.html, main.js, film.js).
    Nothing here styles the replica's internals (.resume …).
    ------------------------------------------------------------------------------------------ */
-/* The stage's scale (--s), shown width (--sw, unscaled px), and phone page offset (--off,
-   unscaled px) are set by main.js; registered so a page-count change can zoom. */
-@property --s {
-  syntax: "<number>";
-  inherits: true;
-  initial-value: 0.5;
-}
-@property --sw {
-  syntax: "<number>";
-  inherits: true;
-  initial-value: 816;
-}
-@property --off {
-  syntax: "<number>";
-  inherits: true;
-  initial-value: 0;
-}
-
 :root {
   color-scheme: light;
   /* Theme tokens (light; dark below). The desk is under everything; paper stays light in both
@@ -400,13 +382,15 @@
   --line: rgb(29 35 43 / 0.18);
   --cat-edge: transparent; /* the cats' outline, for the dark desk */
   --cat-shadow: rgb(29 35 43 / 0.13);
+  --dot: rgb(29 35 43 / 0.09); /* the film's desk grid */
+  --hl: rgb(251 191 36 / 0.5); /* the caption's highlighter */
+  --sheet-shadow: 0 2px 4px rgb(0 0 0 / 0.05), 0 26px 50px -18px rgb(29 35 43 / 0.32);
   --accent: #374151;
   --on-accent: #ffffff;
   --tint: #e2e5e9;
   --spine: #c3c6cb; /* accent 30% */
   --code-bg: #f7f8f9;
   --title-h: 48px;
-  --ctl-h: 60px; /* phone control bar */
   --ui: "Source Sans 3", "Helvetica Neue", Arial, sans-serif;
   --serif: "Source Serif 4 SmText", Georgia, serif;
   --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
@@ -424,6 +408,9 @@
     --line: rgb(238 241 245 / 0.22);
     --cat-edge: rgb(255 255 255 / 0.2);
     --cat-shadow: rgb(0 0 0 / 0.35);
+    --dot: rgb(238 241 245 / 0.07);
+    --hl: rgb(234 88 12 / 0.55);
+    --sheet-shadow: 0 2px 4px rgb(0 0 0 / 0.3), 0 30px 60px -18px rgb(0 0 0 / 0.7);
     --accent: #d5dbe3;
     --on-accent: #1b1f25;
     --tint: #2c323b;
@@ -441,6 +428,9 @@
   --line: rgb(238 241 245 / 0.22);
   --cat-edge: rgb(255 255 255 / 0.2);
   --cat-shadow: rgb(0 0 0 / 0.35);
+  --dot: rgb(238 241 245 / 0.07);
+  --hl: rgb(234 88 12 / 0.55);
+  --sheet-shadow: 0 2px 4px rgb(0 0 0 / 0.3), 0 30px 60px -18px rgb(0 0 0 / 0.7);
   --accent: #d5dbe3;
   --on-accent: #1b1f25;
   --tint: #2c323b;
@@ -545,429 +535,523 @@ a:hover {
   inset: -7px -4px; /* a 44px target */
 }
 
-/* Stage: terminal | page, controls below; fills the window under the title line. */
-.stage {
-  --term-min: 360px; /* main.js: at least 62 terminal columns */
-  display: grid;
-  grid-template-columns: minmax(var(--term-min), 1fr) auto;
-  grid-template-rows: minmax(0, 1fr) auto;
-  grid-template-areas:
-    "term page"
-    "controls controls";
-  column-gap: 16px;
+/* The film (film.js, camera.js, scenes.js) fills the window under the title line: a viewport onto
+   the desk (the world, which the camera moves), the caption and the controls over its bottom. */
+.film {
+  --gutter: clamp(16px, 2.4vw, 56px);
+  --fc-h: 64px; /* the controls */
+  position: relative;
   box-sizing: border-box;
   height: calc(100dvh - var(--title-h));
-  min-height: 560px;
-  max-width: 2200px;
-  margin: 0 auto;
-  padding: 4px 16px 0;
-  overflow-x: clip; /* a page fading out while the spread zooms may overhang the edge */
-  touch-action: pan-y; /* horizontal swipes step the demo */
+  min-height: 300px;
+  overflow: hidden;
+  background: var(--desk);
+  touch-action: pan-y; /* horizontal swipes step the film */
+  -webkit-user-select: none;
+  user-select: none;
 }
-.stage-term {
-  grid-area: term;
-  min-height: 0;
-}
-.stage-page {
-  position: relative;
-  grid-area: page;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 0;
-  padding: 4px 0;
-}
-.stage-controls {
-  grid-area: controls;
-}
-.page-box {
-  position: relative;
-  width: calc(var(--sw) * var(--s) * 1px);
-  height: calc(1056px * var(--s));
-  /* 2 → 1 pages: the content settles onto page 1 first, then the page zooms in. */
-  transition:
-    --s 640ms 240ms cubic-bezier(0.4, 0, 0.2, 1),
-    --sw 640ms 240ms cubic-bezier(0.4, 0, 0.2, 1),
-    --off 320ms cubic-bezier(0.2, 0.7, 0.2, 1);
-}
-.stage.is-fitting .page-box {
-  transition: none;
-}
-.page-replica {
-  width: max-content;
-  transform: scale(var(--s)) translateX(calc(var(--off) * -1px));
-  transform-origin: 0 0;
-}
-
-/* The real PDF page, crossfaded over the replica (act 3). */
-.proof {
+.film-viewport {
   position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+.film-world {
+  position: absolute;
+  left: 0;
   top: 0;
-  left: 0;
-  width: calc(816px * var(--s));
-  height: calc(1056px * var(--s));
-  margin: 0;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 600ms ease;
+  width: 0;
+  height: 0;
+  transform-origin: 0 0;
+  will-change: transform;
 }
-.proof img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  box-shadow:
-    0 1px 2px rgb(0 0 0 / 0.06),
-    0 6px 24px rgb(0 0 0 / 0.08);
-}
-.proof figcaption {
+/* The desk: a faint dot grid that moves with the camera. */
+.film-desk {
   position: absolute;
-  left: 50%;
-  bottom: 6%;
-  transform: translateX(-50%);
-  padding: 4px 12px;
-  border-radius: 999px;
-  background: var(--accent);
-  color: var(--on-accent);
-  font: 600 clamp(12px, 0.5vw + 8px, 15px) / 1.3 var(--ui);
-  white-space: nowrap;
+  left: -8000px;
+  top: -6000px;
+  width: 20000px;
+  height: 14000px;
+  background: radial-gradient(circle, var(--dot) 2.2px, transparent 2.8px) 0 0 / 64px 64px;
 }
-.stage[data-proof="tailored"] .proof[data-proof="tailored"] {
-  opacity: 1;
-}
-
-/* Act 5 adds a role that is not in the repo: a tag above the page, in a strip the page column
-   keeps free during act 5 (main.js refits the page when the act changes). */
-.stage {
-  --tag-h: 22px;
-}
-.demo-tag {
-  display: none;
-  position: absolute;
-  bottom: calc(100% + 4px);
-  left: 0;
-  box-sizing: border-box;
-  height: var(--tag-h);
-  margin: 0;
-  padding: 0 10px;
-  border-radius: 999px;
-  background: var(--tint);
-  color: var(--accent);
-  font: 600 12px / var(--tag-h) var(--ui);
-  white-space: nowrap;
-}
-.stage[data-act="update"] .demo-tag {
-  display: block;
-}
-.stage[data-act="update"] .stage-page {
-  padding-top: calc(var(--tag-h) + 8px);
-}
-@media (max-width: 799px) {
-  .stage {
-    --tag-h: 18px;
-  }
-  .demo-tag {
-    padding: 0 8px;
-    font-size: 11px;
-  }
-}
-
-/* Phone only: which of two pages is shown. */
-.page-switch {
-  display: none;
-  position: absolute;
-  left: 50%;
-  bottom: 6px;
-  transform: translateX(-50%);
-  gap: 2px;
-  padding: 2px;
-  border-radius: 999px;
-  background: var(--paper);
-  box-shadow: 0 0 0 1px var(--tint);
-}
-.page-switch button {
-  position: relative;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  background: transparent;
-  color: #374151; /* on paper, light in both themes */
-  font: 600 14px/1 var(--ui);
-  font-variant-numeric: tabular-nums;
-  cursor: pointer;
-}
-.page-switch button::after {
+/* The desk fades into the caption and the controls, below what the camera frames. */
+.film::after {
   content: "";
   position: absolute;
-  inset: -8px; /* a 44px target */
+  left: 0;
+  right: 0;
+  top: calc(var(--cap-top, 75%) - 56px);
+  bottom: 0;
+  z-index: 1;
+  background: linear-gradient(
+    to bottom,
+    rgb(from var(--desk) r g b / 0) 0,
+    rgb(from var(--desk) r g b / 0.9) 56px,
+    var(--desk) 100%
+  );
+  pointer-events: none;
 }
-.page-switch button[aria-pressed="true"] {
-  background: #374151;
-  color: #fff;
+.film-caption {
+  position: absolute;
+  left: var(--gutter);
+  right: var(--gutter);
+  bottom: calc(var(--fc-h) + env(safe-area-inset-bottom) + 4px);
+  z-index: 2;
+  pointer-events: none;
+}
+.film-kicker {
+  display: flex;
+  align-items: baseline;
+  gap: 0.7em;
+  margin: 0 0 0.4em;
+  color: var(--muted);
+  font: 600 clamp(12px, 0.3vw + 10px, 17px) / 1.2 var(--ui);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.film-num {
+  color: var(--pen-desk);
+  font-variant-numeric: tabular-nums;
+}
+.film-line {
+  max-width: 32ch;
+  margin: 0;
+  color: var(--ink);
+  font: 600 clamp(26px, 2.2vw + 12px, 68px) / 1.08 var(--serif);
+  letter-spacing: -0.015em;
+  text-wrap: balance;
+}
+/* The emphasised word, as if run over with a highlighter. */
+.film-line em {
+  margin: 0 -0.08em;
+  padding: 0 0.08em;
+  background: linear-gradient(transparent 56%, var(--hl) 56%, var(--hl) 92%, transparent 92%);
+  font-style: normal;
+  white-space: nowrap;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
 }
 
-.stage.is-instant *,
-.stage.is-instant *::before {
-  transition: none !important;
-}
-
-/* Control bar */
-.ctl {
-  position: relative;
+/* Controls: play/pause, prev/next, a segment per scene, the "replay" label. They fade while
+   the film plays undisturbed (film.js sets data-controls). */
+.film-controls {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
   display: flex;
   align-items: center;
-  gap: 8px 16px;
-  padding: 10px 0 12px;
-  font: clamp(15px, 0.2vw + 11px, 17px) / 1.2 var(--ui);
+  gap: 4px 14px;
+  box-sizing: border-box;
+  height: calc(var(--fc-h) + env(safe-area-inset-bottom));
+  padding: 0 var(--gutter) env(safe-area-inset-bottom);
+  transition: opacity 500ms ease;
 }
-.ctl-buttons {
+.film[data-controls="hidden"] .film-controls {
+  opacity: 0;
+  pointer-events: none;
+}
+.film[data-controls="hidden"] {
+  cursor: none;
+}
+.fc-buttons {
   display: flex;
-  gap: 4px;
+  gap: 2px;
+  margin-left: -6px;
 }
-.ctl button {
-  font: inherit;
-  color: var(--accent);
-  cursor: pointer;
-}
-.ctl-btn {
+.fc-btn {
   display: grid;
   place-items: center;
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   padding: 0;
   border: 0;
   border-radius: 50%;
   background: transparent;
+  color: var(--ink);
+  cursor: pointer;
 }
-.ctl-btn svg {
+.fc-btn svg {
   fill: currentColor;
 }
-.ctl-btn:hover,
-.ctl-act:hover {
+.fc-btn:hover {
   background: var(--tint);
 }
-.ctl-play {
-  background: var(--accent);
-  color: var(--on-accent) !important;
-}
-.ctl-play:hover {
+.fc-play,
+.fc-play:hover {
   background: var(--ink);
+  color: var(--desk);
 }
-.ctl-acts {
+.fc-chapters {
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
+  flex: 1;
+  gap: 6px;
+  min-width: 0;
   margin: 0;
   padding: 0;
   list-style: none;
 }
-.ctl-act {
-  min-height: 32px;
-  white-space: nowrap;
-  padding: 2px 12px;
-  border: 1px solid transparent;
-  border-radius: 999px;
+.fc-chapters li {
+  flex: 1;
+  min-width: 0;
+}
+.fc-seg {
+  position: relative;
+  display: block;
+  width: 100%;
+  min-width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
   background: transparent;
+  cursor: pointer;
 }
-.ctl-num {
-  font-variant-numeric: tabular-nums;
-  opacity: 0.8; /* 5.7:1 on white, 5.0:1 on the hover tint */
-}
-.ctl-act[aria-current="step"] {
-  background: var(--accent);
-  color: var(--on-accent);
-}
-.ctl-act[aria-current="step"] .ctl-num {
-  opacity: 0.8;
-}
-.ctl-label {
-  margin-left: auto;
-  color: var(--muted);
-  font-size: 14px;
-}
-.ctl-progress {
+.fc-bar {
   position: absolute;
-  top: 0;
   left: 0;
   right: 0;
-  height: 2px;
-  background: var(--tint);
+  top: 50%;
+  height: 4px;
+  margin-top: -2px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--line);
+  transition:
+    height 160ms ease,
+    margin 160ms ease;
 }
-.ctl-progress span {
+.fc-fill {
   display: block;
+  width: calc(var(--fill, 0) * 100%);
   height: 100%;
-  width: 0;
-  background: var(--accent);
-  transition: width 400ms ease;
+  background: var(--ink);
+  transition: width 600ms ease;
 }
-.ctl :focus-visible {
+.fc-seg[aria-current] .fc-fill {
+  background: var(--pen-desk);
+}
+.fc-seg:hover .fc-bar,
+.fc-seg:focus-visible .fc-bar {
+  height: 8px;
+  margin-top: -4px;
+}
+.fc-tip {
+  position: absolute;
+  bottom: calc(100% - 2px);
+  left: 50%;
+  translate: -50% 0;
+  padding: 5px 10px;
+  border-radius: 6px;
+  background: var(--ink);
+  color: var(--desk);
+  font: 600 13px/1.2 var(--ui);
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms ease;
+}
+.fc-chapters li:first-child .fc-tip {
+  left: 0;
+  translate: none;
+}
+.fc-chapters li:last-child:not(:first-child) .fc-tip {
+  left: auto;
+  right: 0;
+  translate: none;
+}
+.fc-seg:hover .fc-tip,
+.fc-seg:focus-visible .fc-tip {
+  opacity: 1;
+}
+.fc-label {
+  color: var(--muted);
+  font: 13px/1 var(--mono);
+}
+.film-controls :focus-visible {
   outline-offset: 2px;
 }
 
-/* Phone: one page over the terminal, controls stuck to the bottom while the stage is on screen.
-   The terminal takes what the page and controls leave of the screen (45dvh at most). A phone on
-   its side is a short landscape window (below). Keep in step with `stacked` in main.js. */
+/* A phone held upright: the chapters on a row of their own, above the buttons. */
+@media (max-width: 599px) {
+  .film {
+    --fc-h: 100px;
+  }
+  .film-controls {
+    flex-wrap: wrap;
+    align-content: center;
+    gap: 0 8px;
+    padding-left: max(8px, env(safe-area-inset-left));
+    padding-right: max(12px, env(safe-area-inset-right));
+  }
+  .fc-chapters {
+    order: -1;
+    flex: 1 0 100%;
+    gap: 4px;
+  }
+  .fc-buttons {
+    margin-left: 0;
+  }
+  .fc-label {
+    margin-left: auto;
+  }
+}
+/* A short window (a phone on its side): a smaller caption and controls. */
+@media (max-height: 500px) {
+  .film {
+    --fc-h: 52px;
+  }
+  .film-caption {
+    padding-left: env(safe-area-inset-left);
+  }
+  .film-kicker {
+    margin-bottom: 0.2em;
+    font-size: 11px;
+  }
+  .film-line {
+    max-width: 34ch;
+    font-size: clamp(20px, 3.4vh + 6px, 30px);
+  }
+}
+
+/* --- Actors on the desk (scenes.js), in world units. -------------------------------------- */
+.film-world > .actor {
+  position: absolute;
+  box-sizing: border-box;
+}
+.film-world > .pen-mark,
+.film-world > .pen-note {
+  z-index: 20;
+}
+.film-world .cat {
+  aspect-ratio: auto;
+}
+
+/* A stray copy of the resume. */
+.copy {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.copy-sheet {
+  box-sizing: border-box;
+  width: 100%;
+  aspect-ratio: 8.5 / 11;
+  padding: 36px 38px;
+  background: var(--paper);
+  color: #1d232b;
+  box-shadow: var(--sheet-shadow);
+}
+.copy-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 24px;
+}
+.copy-name {
+  font: 600 32px/1.1 var(--serif);
+}
+.copy-headline {
+  margin-top: 6px;
+  color: #4b5563;
+  font: 400 16px/1.2 var(--serif);
+}
+.copy-contact {
+  flex: 0 0 24%;
+}
+.copy-contact .copy-l {
+  height: 6px;
+  margin: 6px 0 0 auto;
+}
+.copy-bar {
+  height: 4px;
+  margin: 14px 0 6px;
+  background: #374151;
+}
+.copy-sec {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 18px 0 10px;
+}
+.copy-tab {
+  padding: 2px 9px;
+  background: #374151;
+  color: #fff;
+  font: 600 12px/1.35 var(--ui);
+}
+.copy-rule {
+  flex: 1;
+  height: 1.5px;
+  background: #374151;
+}
+.copy-l {
+  display: block;
+  height: 8px;
+  margin: 9px 0;
+  border-radius: 4px;
+  background: #dcdfe4;
+}
+.copy-role {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+.copy-role .copy-l {
+  height: 10px;
+  background: #a2a8b1;
+}
+.copy-pill {
+  flex: 0 0 22%;
+  height: 14px;
+  border-radius: 7px;
+  background: #e9eaec;
+}
+.copy-file {
+  min-height: 1.25em;
+  margin: 20px 0 0;
+  padding: 4px 16px;
+  border-radius: 999px;
+  background: var(--paper);
+  color: #1d232b;
+  box-shadow: 0 0 0 1.5px var(--line);
+  font: 500 30px/1.25 var(--mono);
+  white-space: pre;
+}
+.copy-file:has(.copy-file-name:empty):not(:has(.is-typing)) {
+  visibility: hidden;
+}
+.is-typing::after {
+  content: "";
+  display: inline-block;
+  width: 0.55em;
+  height: 1.05em;
+  margin-left: 2px;
+  vertical-align: -0.18em;
+  background: currentColor;
+  opacity: 0.75;
+}
+
+/* The resume replica (resume.js) at full size; the real PDF page over page 1 (proof cue). */
+.sheet-proof {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 816px;
+  height: 1056px;
+  opacity: 0;
+  box-shadow: var(--sheet-shadow);
+  transition: opacity 600ms ease;
+}
+.sheet-stack[data-proof] .sheet-proof {
+  opacity: 1;
+}
+
+/* The job posting. */
+.posting {
+  padding: 56px 62px;
+  background: var(--paper);
+  color: #1d232b;
+  box-shadow: var(--sheet-shadow);
+  font: 400 23px/1.45 var(--serif);
+}
+.posting-org {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 0 0 24px;
+  color: #5d6570;
+  font: 600 16px/1.2 var(--ui);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.posting-logo {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: #b45309;
+}
+.posting-logo svg {
+  width: 26px;
+  height: 26px;
+  fill: #fde68a;
+}
+.posting-title {
+  margin: 0;
+  font: 600 46px/1.1 var(--serif);
+  letter-spacing: -0.01em;
+}
+.posting-meta {
+  margin: 14px 0 0;
+  color: #5d6570;
+  font: 400 19px/1.4 var(--ui);
+}
+.posting h4 {
+  margin: 32px 0 8px;
+  color: #374151;
+  font: 600 16px/1.2 var(--ui);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.posting ul {
+  margin: 0;
+  padding-left: 1.1em;
+}
+.posting li {
+  margin: 6px 0;
+}
+.posting li::marker {
+  color: #9aa1ab;
+}
+.posting [data-ask] {
+  white-space: nowrap;
+}
+
+/* Paw prints. */
+.paws {
+  width: 0;
+  height: 0;
+}
+.paw {
+  position: absolute;
+  width: 34px;
+  height: 34px;
+  color: var(--ink);
+  opacity: 0.22;
+}
+.paw svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  fill: currentColor;
+}
+
+/* A terminal card on the desk (terminal.js); Task 3 sizes and styles it for its scenes. */
+.term-card > .term {
+  height: 100%;
+  border-radius: 18px;
+  font-size: 22px;
+  box-shadow: var(--sheet-shadow);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .film-controls,
+  .fc-fill,
+  .sheet-proof {
+    transition: none;
+  }
+}
+
+/* The phone header keeps only the name and the links. */
 @media (max-width: 799px) and (orientation: portrait), (max-width: 799px) and (min-height: 501px) {
   .site-title p {
     display: none;
   }
-  .stage {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto auto auto;
-    grid-template-areas:
-      "page"
-      "term"
-      "controls";
-    row-gap: 12px;
-    height: auto;
-    min-height: 0;
-  }
-  .stage > .stage-term {
-    height: clamp(
-      200px,
-      calc(
-        100dvh - var(--title-h) - 4px - var(--page-h, 60dvh) - 24px - var(--ctl-h) -
-          env(safe-area-inset-bottom, 0px)
-      ),
-      45dvh
-    );
-  }
-  .stage-page {
-    display: block;
-  }
-  .page-box {
-    clip-path: inset(-24px -6px); /* hide the other page, keep the sheet's shadow below */
-  }
-  .stage[data-pages="2"] .page-switch {
-    display: flex;
-  }
-  .stage-controls {
-    position: sticky;
-    bottom: 0;
-    z-index: 10;
-    margin: 0 -16px;
-    padding: 0 8px env(safe-area-inset-bottom);
-    background: var(--desk);
-  }
-  .ctl {
-    box-sizing: border-box;
-    height: var(--ctl-h);
-    gap: 6px;
-    padding: 8px 0;
-  }
-  .ctl-btn,
-  .ctl-act {
-    min-width: 44px;
-    min-height: 44px;
-  }
-  .ctl-btn {
-    width: 44px;
-    height: 44px;
-  }
-  .ctl-acts {
-    flex-wrap: nowrap;
-    gap: 0;
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-  .ctl-act {
-    padding: 2px 8px;
-  }
-  .ctl-name {
-    display: none;
-  }
-  .ctl-num {
-    opacity: 1;
-  }
-  /* No room in the bar: a small word in the gap above it, right-aligned with the terminal. */
-  .ctl-label {
-    position: absolute;
-    right: 8px;
-    bottom: calc(100% + 1px);
-    font-size: 11px;
-    line-height: 11px;
-  }
 }
 
-/* Short landscape (a phone on its side): terminal | one page at a time, side by side, filling the
-   window under the title line with the controls on screen. The page takes its column's width
-   (so it reads at least as well as on a phone held upright) and scrolls inside the column. Keep
-   in step with `short` in main.js. */
-@media (max-height: 500px) and (orientation: landscape) {
-  .stage {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    min-height: 0;
-    padding-left: max(16px, env(safe-area-inset-left));
-    padding-right: max(16px, env(safe-area-inset-right));
-  }
-  .stage-page {
-    display: block;
-    padding: 4px 8px; /* room for the sheet's shadow */
-    overflow: hidden auto;
-    overscroll-behavior: contain;
-    scrollbar-gutter: stable;
-    scrollbar-width: thin;
-    touch-action: pan-y; /* a scroll container: without this it takes horizontal swipes */
-  }
-  .page-box {
-    margin: 0 auto;
-    clip-path: inset(-24px -8px); /* hide the other page */
-  }
-  .stage[data-pages="2"] .page-switch {
-    display: flex;
-  }
-  /* The real PDF's caption goes in the strip above the page, out of the page's way and in view
-     (its bottom is below the column's fold). */
-  .stage[data-proof] .stage-page {
-    padding-top: calc(var(--tag-h) + 8px);
-  }
-  .proof figcaption {
-    bottom: calc(100% + 4px);
-    left: 0;
-    transform: none;
-    box-sizing: border-box;
-    height: var(--tag-h);
-    padding: 0 10px;
-    font-size: 12px;
-    line-height: var(--tag-h);
-  }
-  /* Stays at the bottom of the column while the page scrolls under it. */
-  .page-switch {
-    position: sticky;
-    left: auto;
-    bottom: 6px;
-    transform: none;
-    width: max-content;
-    margin: -38px auto 0;
-  }
-  .stage-controls {
-    padding-bottom: env(safe-area-inset-bottom);
-  }
-  .ctl {
-    gap: 6px 12px;
-    padding: 8px 0;
-  }
-  .ctl-btn,
-  .ctl-act {
-    min-width: 44px;
-    min-height: 44px;
-  }
-  .ctl-btn {
-    width: 44px;
-    height: 44px;
-  }
-  .ctl-act {
-    padding: 2px 10px;
-  }
-}
-@media (max-height: 500px) and (orientation: landscape) and (max-width: 639px) {
-  .ctl-name {
-    display: none;
-  }
-}
-
-/* Sections below the stage: quiet, static, one reading column. */
+/* Sections below the film: quiet, static, one reading column. */
 .sections {
   box-sizing: border-box;
   max-width: 1120px;
@@ -1206,12 +1290,6 @@ pre.error,
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .page-box {
-    transition: none;
-  }
-}
-
 /* ------------------------------------------------------------------------------------------
    Terminal (site/terminal.js): the only dark surface.
    ------------------------------------------------------------------------------------------ */
@@ -1424,10 +1502,6 @@ pre.error,
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .proof,
-  .ctl-progress span {
-    transition: none;
-  }
   .t-caret {
     animation: none;
   }
