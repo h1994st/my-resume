@@ -4,7 +4,7 @@
 // createFilm({ scenes, cues, actors, root, onEvent }) → film
 //   { play(), pause(), toggle(), next(), prev(), goTo(n), interact(method), renderEnd(n),
 //     ready, scene, step, playing, animating, seen, inView, busy, actor(id), focus(), camera,
-//     world, sceneCount }
+//     world, sceneCount, speed (the test-only ?speed, speed.js) }
 // `n` and `scene` are 0-based indexes into `scenes`; events count scenes from 1.
 //
 // ## The scene contract (scenes.js fills it)
@@ -40,12 +40,19 @@
 //                  update?(el, props, ctx), enter?(el, props, signal, ctx) → Promise }
 //   `create` builds the element (the film positions it); `mount` runs once it is in the world;
 //   `update` runs when a scene keeps the actor (see below); `enter` replaces the default entrance.
-// ctx (for cue handlers): { world, camera, cache, reduced, actor(id), add(cue) → { el, kept,
-//   before }, place(el, at), remove(id), el(target) → Element, rect(target, layer) → rect in
-//   the layer's units, wait(ms, signal) }. `at` is { x, y, w?, h?, r? (deg), z? } in world units.
+// ctx (for cue handlers): { world, overlay, camera, cache, reduced, actor(id), add(cue) → { el,
+//   kept, before }, place(el, at), remove(id), el(target) → Element, rect(target, layer) → rect
+//   in the layer's units, wait(ms, signal) }. `at` is { x, y, w?, h?, r? (deg), z? } in world
+//   units. `overlay` is a screen-space layer over the film that is not aria-hidden (the world
+//   is): put real links and buttons there (the closing call to action). The film empties it
+//   with the world for an end frame and fades its children out when a scene starts.
+// An actor kept from the scene before gets `update(el, props)` instead of create + mount; the
+// two must agree: the previous scene's end frame plus update = create + mount.
 //
 // ## End frames, playback, and jumps
 //
+// Before the first frame: with reduced motion, scene 1's end frame is the poster; otherwise the
+// desk stays empty (scene 1's first shot, its caption) until autoplay starts scene 1.
 // renderEnd(n) builds scene n's end frame from scratch: it empties the world, applies the
 // instant form of every cue of the scene, frames the last shot at once, and shows the caption.
 // Playback plays each step's cues with `run`. A scene that starts from the end frame of the
@@ -53,7 +60,8 @@
 // the rest fade out, and every pen mark and note is cleared. goTo(n) (next, prev, chapters,
 // keys, swipes) cancels everything in flight (an AbortSignal) and renders scene n's end frame;
 // play() then plays scene n from its start. Pausing mid-step shows that step's end at once;
-// play() goes on from the next step. After the last scene, play() starts over. With reduced
+// play() goes on from the next step. After the last scene, play() starts over. A cue that
+// fails (not an abort) stops playback where it is and logs the error. With reduced
 // motion there is no autoplay and each step shows its end frame at once (camera cuts).
 //
 // ## Viewer
@@ -73,6 +81,7 @@
 // when the last scene is entered.
 
 import { createCamera, offsetRect } from "./camera.js";
+import { SPEED } from "./speed.js";
 
 const HOLD = 1600;
 const IDLE_MS = 2500;
@@ -104,7 +113,7 @@ function wait(ms, signal) {
     const timer = setTimeout(() => {
       signal?.removeEventListener("abort", onAbort);
       resolve();
-    }, ms);
+    }, ms / SPEED);
     const onAbort = () => {
       clearTimeout(timer);
       reject(signal.reason);
@@ -147,6 +156,7 @@ export function createFilm({ scenes, cues, actors, root, onEvent = () => {} }) {
   root.innerHTML = `<div class="film-viewport" aria-hidden="true">
       <div class="film-world" data-pen-layer><div class="film-desk"></div></div>
     </div>
+    <div class="film-overlay"></div>
     <div class="film-caption" aria-hidden="true">
       <p class="film-kicker"><span class="film-num"></span><span class="film-name"></span></p>
       <p class="film-line"></p>
@@ -181,6 +191,7 @@ export function createFilm({ scenes, cues, actors, root, onEvent = () => {} }) {
   const viewport = root.querySelector(".film-viewport");
   const world = root.querySelector(".film-world");
   const desk = root.querySelector(".film-desk");
+  const overlay = root.querySelector(".film-overlay");
   const caption = root.querySelector(".film-caption");
   const controls = root.querySelector(".film-controls");
   const live = root.querySelector("[data-film-live]");
@@ -248,6 +259,7 @@ export function createFilm({ scenes, cues, actors, root, onEvent = () => {} }) {
 
   const ctx = {
     world,
+    overlay,
     camera,
     cache,
     get reduced() {
@@ -331,7 +343,7 @@ export function createFilm({ scenes, cues, actors, root, onEvent = () => {} }) {
       w: r.w + g.left + g.right,
       h: r.h + g.top + g.bottom,
     };
-    lastShot = { step, rect };
+    lastShot = { step, rect, area: camera.area() };
     return camera.frame(rect, {
       padding: shot.padding,
       duration: shot.duration,
@@ -369,7 +381,9 @@ export function createFilm({ scenes, cues, actors, root, onEvent = () => {} }) {
       if (a instanceof CSSAnimation || a instanceof CSSTransition) continue;
       a.cancel();
     }
+    for (const a of overlay.getAnimations({ subtree: true })) a.cancel();
     for (const child of [...world.children]) if (child !== desk) child.remove();
+    overlay.replaceChildren();
     cast.clear();
   }
 
@@ -415,6 +429,7 @@ export function createFilm({ scenes, cues, actors, root, onEvent = () => {} }) {
       }
     }
     for (const el of world.querySelectorAll(".pen-mark, .pen-note")) fadeOut(el);
+    for (const el of overlay.children) fadeOut(el);
     for (const [id, rec] of [...cast]) {
       if (kinds.get(id) === rec.kind) continue;
       fadeOut(rec.el);
@@ -522,7 +537,14 @@ export function createFilm({ scenes, cues, actors, root, onEvent = () => {} }) {
       run = null;
       updateUI();
     } catch (err) {
-      if (!signal.aborted) throw err;
+      if (signal.aborted) return;
+      // A broken cue: stop here, in a state the controls can recover from.
+      console.error(err);
+      ctrl.abort();
+      if (run === ctrl) run = null;
+      playing = false;
+      animating = null;
+      updateUI();
     }
   }
 
@@ -568,24 +590,17 @@ export function createFilm({ scenes, cues, actors, root, onEvent = () => {} }) {
 
   // --- Controls --------------------------------------------------------------------------------
 
-  controls.querySelector('[data-ctl="prev"]').addEventListener("click", () => {
-    interact("step");
-    prev();
-  });
-  controls.querySelector('[data-ctl="next"]').addEventListener("click", () => {
-    interact("step");
-    next();
-  });
-  ui.play.addEventListener("click", () => {
-    interact("play");
-    toggle();
-  });
-  ui.segs.forEach((seg, i) =>
-    seg.addEventListener("click", () => {
-      interact("chapter");
-      goTo(i);
-    }),
-  );
+  // Until the film is ready (fonts loaded, first frame drawn) the controls do nothing.
+  const onClick = (el, method, action) =>
+    el.addEventListener("click", () => {
+      if (!isReady) return;
+      interact(method);
+      action();
+    });
+  onClick(controls.querySelector('[data-ctl="prev"]'), "step", () => prev());
+  onClick(controls.querySelector('[data-ctl="next"]'), "step", () => next());
+  onClick(ui.play, "play", () => toggle());
+  ui.segs.forEach((seg, i) => onClick(seg, "chapter", () => goTo(i)));
 
   let wasPlaying = null;
   function updateUI() {
@@ -608,14 +623,17 @@ export function createFilm({ scenes, cues, actors, root, onEvent = () => {} }) {
 
   // Auto-hide: only while playing with motion; never under the pointer or keyboard focus.
   let idleTimer = 0;
-  function showControls() {
+  let pointer = null; // the last pointer's type: :hover counts only for a mouse (a tap sticks)
+  function showControls(e) {
+    if (e?.pointerType) pointer = e.pointerType;
     clearTimeout(idleTimer);
     root.dataset.controls = "shown";
     if (playing && !reduced.matches) idleTimer = setTimeout(hideControls, IDLE_MS);
   }
   function hideControls() {
     if (!playing || reduced.matches) return;
-    if (controls.matches(":hover") || controls.querySelector(":focus-visible")) {
+    const hovered = pointer === "mouse" && controls.matches(":hover");
+    if (hovered || controls.querySelector(":focus-visible")) {
       idleTimer = setTimeout(hideControls, IDLE_MS);
       return;
     }
@@ -624,7 +642,7 @@ export function createFilm({ scenes, cues, actors, root, onEvent = () => {} }) {
   for (const type of ["pointermove", "pointerdown", "focusin"]) {
     root.addEventListener(type, showControls);
   }
-  reduced.addEventListener("change", showControls);
+  reduced.addEventListener("change", () => showControls());
 
   // --- Visibility, keys, swipes ----------------------------------------------------------------
 
@@ -683,7 +701,7 @@ export function createFilm({ scenes, cues, actors, root, onEvent = () => {} }) {
     start = null;
   });
   root.addEventListener("pointerup", (e) => {
-    if (!start || e.pointerId !== start.id) return;
+    if (!start || e.pointerId !== start.id || !isReady) return;
     const dx = e.clientX - start.x;
     const dy = e.clientY - start.y;
     start = null;
@@ -693,13 +711,19 @@ export function createFilm({ scenes, cues, actors, root, onEvent = () => {} }) {
     else prev();
   });
 
-  // A resize (or a caption that wraps differently) reframes the shot on screen, at once.
-  new ResizeObserver(() => {
-    if (lastShot && isReady) frameShot(lastShot.step, { instant: true });
-  }).observe(caption);
-  new ResizeObserver(() => {
-    if (lastShot && isReady) frameShot(lastShot.step, { instant: true });
-  }).observe(viewport);
+  // A resize (or a caption that wraps differently) reframes the shot on screen: at once, or, mid
+  // move, as a move. Nothing to do when the free area is the one the shot was framed for (a
+  // scene's new caption is in place before its first shot is framed).
+  const reframe = () => {
+    if (!lastShot || !isReady) return;
+    const a = camera.area();
+    const b = lastShot.area;
+    if (a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h) return;
+    if (camera.moving && run) frameShot(lastShot.step, { signal: run.signal }).catch(() => {});
+    else frameShot(lastShot.step, { instant: true });
+  };
+  new ResizeObserver(reframe).observe(caption);
+  new ResizeObserver(reframe).observe(viewport);
 
   // Text must be in its final fonts before anything measures it (notes, marks, the replica).
   const fonts = [
@@ -716,7 +740,14 @@ export function createFilm({ scenes, cues, actors, root, onEvent = () => {} }) {
     .then(() => document.fonts.ready)
     .then(() => {
       isReady = true;
-      goTo(0, { silent: true });
+      if (reduced.matches) {
+        goTo(0, { silent: true }); // no autoplay: scene 1's end frame is the poster
+      } else {
+        // Autoplay will start scene 1 from an empty desk: frame its first shot, show its caption.
+        setCaption(0, false);
+        if (scenes[0].steps[0].shot) frameShot(scenes[0].steps[0], { instant: true });
+        updateUI();
+      }
       io.observe(root);
     });
 
@@ -759,5 +790,6 @@ export function createFilm({ scenes, cues, actors, root, onEvent = () => {} }) {
     get sceneCount() {
       return scenes.length;
     },
+    speed: SPEED,
   };
 }

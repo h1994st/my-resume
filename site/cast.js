@@ -6,11 +6,14 @@
 // castSymbol() → the <svg><defs><symbol id="cat">… markup (createCat adds it to the page once).
 // createCat(name, { pose, idle, label }) → a <div class="cat"> with two methods:
 //   cat.pose(p, { signal }) shows a pose (sit, wave, jump, tap, blink; all but sit loop while
-//     held) and resolves after its first cycle (at once for sit or with reduced motion).
+//     held) and resolves after its first cycle (at once for sit or with reduced motion; sooner
+//     with the test-only ?speed, speed.js).
 //   cat.idle(on) turns idle life (breathing, tail wag, blinks) on or off.
 // Poses are transforms plus overlays drawn over the symbol: a raised paw (wave), tucked paws
 // (jump), tapping paws (tap), closing lids (blink). With reduced motion nothing moves: a pose holds
 // its key frame and idle life stays off (style.css).
+
+import { SPEED } from "./speed.js";
 
 export const CATS = {
   duna: { label: "Duna" },
@@ -162,7 +165,7 @@ export function createCat(name, { pose = "sit", idle = true, label } = {}) {
   cat.pose = (p, { signal } = {}) => {
     if (!POSES.includes(p)) throw new Error(`unknown pose: ${p}`);
     cat.dataset.pose = p;
-    const ms = reducedMotion.matches ? 0 : CYCLE[p];
+    const ms = reducedMotion.matches ? 0 : CYCLE[p] / SPEED;
     return new Promise((resolve, reject) => {
       if (signal?.aborted) return reject(signal.reason);
       if (!ms) return resolve();

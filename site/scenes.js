@@ -8,7 +8,8 @@
 //
 // Actor kinds (ACTORS): cat { name, pose, label }, copy { file, headline } (a stray resume copy;
 // its file name starts empty for a type cue), resume { state, highlight } (the replica, both
-// pages; `el.resume` is its createResume API), posting (the Granary & Sons job), paws { from,
+// pages; `el.resume` is its createResume API, `el.dataset.state` its state; a kept replica is
+// updated to exactly what create + mount would build), posting (the Granary & Sons job), paws { from,
 // to } (a trail of prints, in world units), terminal (a desk card around createTerminal; Task 3
 // styles it).
 //
@@ -23,7 +24,8 @@
 //   mark { target, kind, on?, from?, grow?, ink?, pad?, seed?, duration? }   a pen mark, in the target's
 //       pen layer unless `on` names an actor or "world"; `from` (arrows) is a point in the
 //       layer's units or a target (the arrow starts at its edge facing the mark's target);
-//       `grow` (world units) widens the target on every side (an arrow then stops short of it)
+//       `grow` (world units, or { top, right, bottom, left }; negative shrinks) widens the target
+//       (an arrow then stops short of it; an underline with a negative bottom sits closer)
 //   note { id?, text, at, side?, gap?, size?, rotate?, weight?, on?, ink? }   a pen note; `at` is
 //       a point { x, y } (top left) or a target with `side`
 //   resume { id, state, highlight?, animate? }   the replica's state (resume-data.js keys)
@@ -197,6 +199,21 @@ export const ACTORS = {
     },
     mount(el, { state = "canonical", highlight = [] }) {
       el.resume.render(state);
+      el.dataset.state = state;
+      el.resume.highlight(highlight);
+      sizeResume(el);
+    },
+    // Kept from the scene before: the same replica create + mount would build (no pen marks
+    // but those still fading out, no real-PDF page, `state` and `highlight` as given).
+    update(el, { state = "canonical", highlight = [] }) {
+      for (const m of el.querySelectorAll(".pen-mark, .pen-note")) {
+        if (!("ghost" in m.dataset)) m.remove();
+      }
+      if ("proof" in el.dataset) setProof(el, false, false);
+      if (el.dataset.state !== state) {
+        el.resume.render(state);
+        el.dataset.state = state;
+      }
       el.resume.highlight(highlight);
       sizeResume(el);
     },
@@ -321,8 +338,20 @@ function markArgs(cue, ctx) {
         ? ctx.el(cue.on)
         : (el?.closest("[data-pen-layer]") ?? ctx.world);
   const r = ctx.rect(el ?? cue.target, layer);
-  const g = cue.grow ?? 0;
-  const rect = { x: r.x - g, y: r.y - g, w: r.w + 2 * g, h: r.h + 2 * g };
+  const n = typeof cue.grow === "number" ? cue.grow : 0;
+  const g = {
+    top: n,
+    right: n,
+    bottom: n,
+    left: n,
+    ...(typeof cue.grow === "object" ? cue.grow : {}),
+  };
+  const rect = {
+    x: r.x - g.left,
+    y: r.y - g.top,
+    w: r.w + g.left + g.right,
+    h: r.h + g.top + g.bottom,
+  };
   const opts = {
     layer,
     ink:
@@ -487,12 +516,14 @@ export const CUES = {
     async run({ id, state, highlight = [], animate = true }, ctx, signal) {
       const el = ctx.el(id);
       el.resume.render(state, { animate });
+      el.dataset.state = state;
       el.resume.highlight(highlight);
       if (animate && !ctx.reduced) await ctx.wait(900, signal);
     },
     instant({ id, state, highlight = [] }, ctx) {
       const el = ctx.el(id);
       el.resume.render(state, { animate: false });
+      el.dataset.state = state;
       el.resume.highlight(highlight);
     },
   },
@@ -573,8 +604,9 @@ const copy = (n, file, headline, at) => [
   },
 ];
 
-// The role header the camera pushes onto in scene 2: its title, as the template sets it.
+// The role header the camera pushes onto in scene 2 (its title line), and the title itself.
 const ROLE = { actor: "resume", sel: '[data-id="windowsill"] .r-title' };
+const ROLE_TITLE = { actor: "resume", sel: '[data-id="windowsill"] .r-title b' };
 
 export const SCENES = [
   {
@@ -727,7 +759,14 @@ export const SCENES = [
         },
         cues: [
           { do: "pose", id: "duna", pose: "sit", wait: false },
-          { do: "mark", target: ROLE, kind: "circle", pad: 7, after: "camera" },
+          // Underlined, not ringed: a ring around one line of the page crosses its neighbours.
+          {
+            do: "mark",
+            target: ROLE_TITLE,
+            kind: "underline",
+            grow: { bottom: -4 },
+            after: "camera",
+          },
           {
             do: "note",
             id: "once",
@@ -740,11 +779,11 @@ export const SCENES = [
           },
           {
             do: "mark",
-            target: ROLE,
+            target: ROLE_TITLE,
             kind: "arrow",
             on: "world",
             from: { note: "once" },
-            grow: 30,
+            grow: 12,
             ink: "desk",
           },
         ],

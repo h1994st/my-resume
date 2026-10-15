@@ -290,6 +290,21 @@ class Page {
     await this.send("Input.dispatchKeyEvent", { type: "keyUp", ...common });
   }
 
+  // Runs every WAAPI and CSS animation n times faster (the page's timers: ?speed=n).
+  async animationSpeed(n) {
+    await this.send("Animation.enable");
+    await this.send("Animation.setPlaybackRate", { playbackRate: n });
+  }
+
+  // A touch tap at (x, y) in CSS px.
+  async tap(x, y) {
+    await this.send("Input.dispatchTouchEvent", {
+      type: "touchStart",
+      touchPoints: [{ x, y, id: 1 }],
+    });
+    await this.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  }
+
   // The mouse pointer moved to (x, y) in CSS px.
   mouse(x, y) {
     return this.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
@@ -546,8 +561,12 @@ test("film: a jump while a type cue types renders the scene's end frame, and it 
 });
 
 test("film: playing each scene through ends on the frame a jump renders", async ({ newPage }) => {
+  // Four times the speed (timers through ?speed, animations through the protocol): the same
+  // frames, sooner.
   const page = await newPage();
-  await page.goto("/");
+  await page.animationSpeed(4);
+  await page.goto("/?speed=4");
+  assert.equal(await page.eval(() => window.__demo.film.speed), 4, "?speed is read");
   const steps = await page.eval(async () =>
     (await import("./scenes.js")).SCENES.map((s) => s.steps.length),
   );
@@ -593,6 +612,219 @@ test("film: playing a scene after a jump to it keeps its actors on the desk", as
     };
   });
   assert.deepEqual(got, { onDesk: true, ghost: false, opacity: "1" });
+});
+
+test("film: a scene's first camera move on a phone runs its course", async ({ newPage }) => {
+  // Scene 1's two-line caption gives way to scene 2's one line as scene 2 starts; the move,
+  // framed for the new caption, must not be cut short by the caption's resize.
+  const page = await newPage({ width: 390, height: 844, mobile: true, deviceScaleFactor: 2 });
+  await page.goto("/?speed=8");
+  await page.waitFor(() => window.__demo.film.playing);
+  const move = await page.eval(
+    () =>
+      new Promise((resolve) => {
+        const { film } = window.__demo;
+        const samples = [];
+        let t0 = null;
+        const tick = (t) => {
+          if (film.scene === 1 && t0 === null) t0 = t;
+          if (t0 !== null) {
+            samples.push({
+              t: t - t0,
+              moving: film.camera.moving,
+              m: getComputedStyle(film.world).transform,
+            });
+            if (t - t0 > 1600) return resolve(samples);
+          }
+          requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      }),
+  );
+  const moving = move.filter((s) => s.moving);
+  const span = moving.length ? moving.at(-1).t - moving[0].t : 0;
+  const distinct = new Set(moving.map((s) => s.m)).size;
+  assert.ok(span >= 500, `the move lasts ${Math.round(span)} ms`);
+  assert.ok(distinct >= 15, `${distinct} distinct camera frames`);
+});
+
+test("film: autoplay starts from an empty desk, with nothing fading", async ({ newPage }) => {
+  const page = await newPage();
+  // Counts every element that ever fades out (data-ghost) from the first script on.
+  await page.send("Page.addScriptToEvaluateOnNewDocument", {
+    source: `
+      window.__ghosts = 0;
+      new MutationObserver((records) => {
+        for (const r of records) if (r.target.hasAttribute?.("data-ghost")) window.__ghosts++;
+      }).observe(document, { attributes: true, attributeFilter: ["data-ghost"], subtree: true });
+    `,
+  });
+  await page.goto("/");
+  await page.waitFor(() => window.__demo.film.busy.includes("type"), { timeout: 15_000 });
+  assert.equal(await page.eval(() => window.__ghosts), 0, "no end frame dissolves at autoplay");
+});
+
+test("film: a tap on the controls doesn't keep them from fading", async ({ newPage }) => {
+  const page = await newPage({ width: 390, height: 844, mobile: true, deviceScaleFactor: 2 });
+  await page.goto("/");
+  await page.waitFor(() => window.__demo.film.playing);
+  const at = await page.eval(() => {
+    const r = document.querySelector(".fc-label").getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  });
+  await page.tap(at.x, at.y); // a touch leaves :hover on what it touched
+  assert.equal(await page.eval(() => window.__demo.film.playing), true);
+  await page.waitFor(() => document.getElementById("film").dataset.controls === "hidden", {
+    timeout: 6000,
+  });
+});
+
+test("film: a failing cue stops playback cleanly", async ({ newPage }) => {
+  const page = await newPage();
+  await page.goto("/");
+  await pausedFilm(page);
+  const got = await page.eval(async () => {
+    const { CUES } = await import("./scenes.js");
+    const { film } = window.__demo;
+    const run = CUES.type.run;
+    const logged = [];
+    const error = console.error;
+    console.error = (...args) => logged.push(String(args[0]?.message ?? args[0]));
+    CUES.type.run = () => Promise.reject(new Error("a broken cue"));
+    try {
+      film.goTo(0);
+      film.play();
+      for (let i = 0; i < 200 && film.playing; i++) await new Promise((r) => setTimeout(r, 20));
+      const after = { playing: film.playing, animating: film.animating };
+      const label = document.querySelector('[data-ctl="play"]').getAttribute("aria-label");
+      CUES.type.run = run;
+      film.play();
+      return { after, label, logged, again: film.playing };
+    } finally {
+      CUES.type.run = run;
+      console.error = error;
+      film.pause();
+    }
+  });
+  assert.deepEqual(got, {
+    after: { playing: false, animating: false },
+    label: "Play",
+    logged: ["a broken cue"],
+    again: true,
+  });
+});
+
+test("film: control clicks before the film is ready are ignored", async ({ newPage }) => {
+  const page = await newPage();
+  // Holds the film's font loads (it waits for them) until the test lets them go.
+  await page.send("Page.addScriptToEvaluateOnNewDocument", {
+    source: `
+      const load = FontFaceSet.prototype.load;
+      let release;
+      const gate = new Promise((r) => (release = r));
+      window.__releaseFonts = release;
+      FontFaceSet.prototype.load = function (...args) {
+        return gate.then(() => load.apply(this, args));
+      };
+    `,
+  });
+  await page.goto("/", { waitForDemo: false });
+  await page.waitFor(() => document.querySelector(".fc-seg"));
+  await page.eval(() => {
+    document.querySelector('.fc-seg[data-scene="3"]').click();
+    document.querySelector('[data-ctl="next"]').click();
+    document.querySelector('[data-ctl="play"]').click();
+  });
+  await page.eval(() => window.__releaseFonts());
+  await page.waitFor(() => Boolean(window.__demo));
+  const got = await page.eval(() => ({
+    scene: window.__demo.film.scene,
+    interactions: window.__demo.events.filter((e) => e.name === "interact").length,
+  }));
+  assert.deepEqual(got, { scene: 0, interactions: 0 });
+});
+
+test("film: the overlay layer is outside the aria-hidden world and is cleared per frame", async ({
+  newPage,
+}) => {
+  const page = await newPage();
+  await page.goto("/");
+  await pausedFilm(page);
+  const got = await page.eval(() => {
+    const overlay = document.querySelector(".film-overlay");
+    const hidden = overlay?.closest("[aria-hidden='true']");
+    const link = document.createElement("a");
+    link.href = "#";
+    link.textContent = "a real link";
+    overlay?.append(link);
+    window.__demo.film.goTo(1);
+    return { exists: Boolean(overlay), hidden: Boolean(hidden), left: overlay?.children.length };
+  });
+  assert.deepEqual(got, { exists: true, hidden: false, left: 0 });
+});
+
+test("scenes: a kept replica, updated, is the replica its enter cue would build", async ({
+  newPage,
+}) => {
+  const page = await newPage();
+  await page.goto("/");
+  await pausedFilm(page);
+  const got = await page.eval(async () => {
+    const { ACTORS } = await import("./scenes.js");
+    const { markInstant, noteInstant } = await import("./pen.js");
+    const ctx = { cache: new Map() };
+    const host = document.createElement("div");
+    host.style.cssText = "position:absolute;left:-6000px;top:0";
+    document.body.append(host);
+    const make = (id, props) => {
+      const el = ACTORS.resume.create(props, ctx, id);
+      el.style.position = "absolute";
+      host.append(el);
+      ACTORS.resume.mount(el, props, ctx);
+      return el;
+    };
+    const look = (el) => ({
+      text: el.textContent.replace(/\s+/g, " ").trim(),
+      hl: [...el.querySelectorAll(".is-hl")].map((e) => e.dataset.id),
+      pen: el.querySelectorAll(".pen-mark, .pen-note").length,
+      proof: "proof" in el.dataset,
+      size: [el.style.width, el.style.height],
+    });
+    // The end of a scene: another state, a highlight, pen marks, the real PDF on top.
+    const kept = make("kept", { state: "granary", highlight: ["w-birds"] });
+    markInstant(kept.querySelector('[data-id="w-birds"]'), "circle", { layer: kept });
+    noteInstant("moved up!", { x: 10, y: 10 }, { layer: kept });
+    kept.dataset.proof = "";
+    const props = { state: "canonical", highlight: ["windowsill"] };
+    ACTORS.resume.update(kept, props, ctx);
+    const fresh = make("fresh", props);
+    const out = { kept: look(kept), fresh: look(fresh) };
+    host.remove();
+    return out;
+  });
+  assert.equal(got.kept.pen, 0, "pen marks cleared");
+  assert.deepEqual(got.kept, got.fresh);
+});
+
+test("scenes: scene 2's pen mark on the role keeps clear of the bullet under it", async ({
+  newPage,
+}) => {
+  const page = await newPage({ width: 1920, height: 1080 });
+  await page.goto("/");
+  await pausedFilm(page);
+  const got = await page.eval(() => {
+    window.__demo.film.goTo(1);
+    const resume = window.__demo.film.actor("resume");
+    const mark = resume.querySelector(".pen-mark path").getBoundingClientRect();
+    const bullet = resume.querySelector('[data-id="windowsill"] + .r-bullet');
+    // The bullet's text: the top of its x-height, below the line box's top.
+    const range = document.createRange();
+    range.selectNodeContents(bullet);
+    const text = range.getBoundingClientRect();
+    const s = window.__demo.film.camera.view.s;
+    return { overlap: (mark.bottom - text.top) / s + 1.3 }; // + half the pen's stroke
+  });
+  assert.ok(got.overlap <= 4, `the mark dips ${got.overlap.toFixed(1)} units into the bullet`);
 });
 
 test("film: the controls fade after 2.5 s while playing and come back", async ({ newPage }) => {
@@ -854,7 +1086,9 @@ const filmLayout = (page) =>
       header: rect(q(".site-title")),
       film: rect(q("#film")),
       controls: rect(q(".film-controls")),
-      targets: [...document.querySelectorAll(".fc-btn, .fc-seg")].map(rect),
+      buttons: [...document.querySelectorAll(".fc-btn")].map(rect),
+      segments: [...document.querySelectorAll(".fc-seg")].map(rect),
+      segMin: parseFloat(getComputedStyle(q(".fc-seg")).minWidth),
       label: rect(q(".fc-label")),
       caption: rect(q(".film-caption")),
       line: rect(q(".film-line")),
@@ -877,10 +1111,17 @@ function checkFilmLayout(m, label) {
   // The film fills the window under the one-line header.
   assert.ok(near(m.film.top, m.header.bottom) && near(m.film.bottom, m.vh), `${label}: film box`);
   assert.ok(near(m.film.left, 0) && near(m.film.right, m.vw), `${label}: film width`);
-  // Controls on screen, with 44 px targets, and the "replay" label clear of them.
+  // Controls on screen: 44 px buttons; chapter segments 44 px tall and at least 24 px wide
+  // (WCAG 2.5.8; nine of them share a phone's row); the "replay" label clear of them.
   assert.ok(inside(m.controls, screen), `${label}: controls off screen`);
-  for (const r of m.targets) {
-    assert.ok(r.width >= 44 && r.height >= 44, `${label}: a ${r.width}×${r.height} target`);
+  assert.ok(m.segMin >= 24, `${label}: segments may shrink below 24 px`);
+  for (const r of m.buttons) {
+    assert.ok(r.width >= 44 && r.height >= 44, `${label}: a ${r.width}×${r.height} button`);
+  }
+  for (const r of m.segments) {
+    assert.ok(r.width >= 24 && r.height >= 44, `${label}: a ${r.width}×${r.height} segment`);
+  }
+  for (const r of [...m.buttons, ...m.segments]) {
     assert.ok(inside(r, screen), `${label}: a control off screen`);
     assert.ok(apart(r, m.label), `${label}: "replay" overlaps a control`);
   }
@@ -1116,7 +1357,13 @@ test("theme: the toggle sets data-theme and keeps it across a reload", async ({ 
   try {
     await page.goto("/");
     await toggleTheme(page);
-    const dark = { stored: "dark", attr: "dark", bg: DESK.dark, pressed: "true", name: "Dark theme" };
+    const dark = {
+      stored: "dark",
+      attr: "dark",
+      bg: DESK.dark,
+      pressed: "true",
+      name: "Dark theme",
+    };
     assert.deepEqual(await themeState(page), dark);
     assert.deepEqual(
       await page.eval(() => window.__demo.events.filter((e) => e.name === "theme")),
@@ -1550,10 +1797,11 @@ test("analytics: debug mode fills dataLayer with config and the three demo event
     events.filter(([, n]) => n === "tutorial_complete"),
     [["event", "tutorial_complete", { method: "manual" }]],
   );
-  assert.deepEqual(
-    [...new Set(events.map(([, n]) => n))].sort(),
-    ["demo_act", "tutorial_begin", "tutorial_complete"],
-  );
+  assert.deepEqual([...new Set(events.map(([, n]) => n))].sort(), [
+    "demo_act",
+    "tutorial_begin",
+    "tutorial_complete",
+  ]);
   assert.equal(
     await page.eval(() => document.querySelectorAll('script[src*="googletagmanager"]').length),
     0,

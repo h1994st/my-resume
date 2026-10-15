@@ -590,6 +590,18 @@ a:hover {
   );
   pointer-events: none;
 }
+/* Screen-space content that assistive tech must reach (the world is aria-hidden): links and
+   buttons a scene puts over the film. Under the caption and the controls. */
+.film-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+.film-overlay > * {
+  pointer-events: auto;
+}
+
 .film-caption {
   position: absolute;
   left: var(--gutter);
@@ -699,7 +711,7 @@ a:hover {
   position: relative;
   display: block;
   width: 100%;
-  min-width: 44px;
+  min-width: 24px; /* WCAG 2.5.8: nine segments share a phone's row; 44 px tall */
   height: 44px;
   padding: 0;
   border: 0;

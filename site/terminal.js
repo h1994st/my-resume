@@ -18,6 +18,8 @@
 // play() types prompts at ~35 chars/s, paces the other lines, auto-scrolls, and rejects with an
 // AbortError when `signal` aborts (the caller then re-renders the state it wants).
 
+import { SPEED } from "./speed.js";
+
 const CHAR_MS = 1000 / 35;
 const SPIN_FRAMES = ["·", "✢", "✳", "✶", "✻", "✽", "✻", "✶", "✳", "✢"];
 const SPIN_FRAME_MS = 120;
@@ -50,7 +52,7 @@ function wait(ms, signal) {
     const timer = setTimeout(() => {
       signal?.removeEventListener("abort", onAbort);
       resolve();
-    }, ms);
+    }, ms / SPEED);
     const onAbort = () => {
       clearTimeout(timer);
       reject(signal.reason);
@@ -251,7 +253,7 @@ export function createTerminal(el) {
     const timer = setInterval(() => {
       frame = (frame + 1) % SPIN_FRAMES.length;
       glyph.textContent = SPIN_FRAMES[frame];
-    }, SPIN_FRAME_MS);
+    }, SPIN_FRAME_MS / SPEED);
     try {
       await wait(line.ms ?? 1200, signal);
     } finally {
