@@ -526,29 +526,39 @@ a:hover {
   opacity: 1;
 }
 
-/* Act 5 adds a role that is not in the repo. */
+/* Act 5 adds a role that is not in the repo: a tag above the page, in a strip the page column
+   keeps free during act 5 (main.js refits the page when the act changes). */
+.stage {
+  --tag-h: 22px;
+}
 .demo-tag {
   display: none;
   position: absolute;
-  top: 6px;
-  left: 8px;
+  bottom: calc(100% + 4px);
+  left: 0;
+  box-sizing: border-box;
+  height: var(--tag-h);
   margin: 0;
-  padding: 1px 10px;
+  padding: 0 10px;
   border-radius: 999px;
   background: var(--tint);
   color: var(--accent);
-  font: 600 12px/1.6 var(--ui);
+  font: 600 12px / var(--tag-h) var(--ui);
+  white-space: nowrap;
 }
 .stage[data-act="update"] .demo-tag {
   display: block;
 }
+.stage[data-act="update"] .stage-page {
+  padding-top: calc(var(--tag-h) + 8px);
+}
 @media (max-width: 799px) {
+  .stage {
+    --tag-h: 18px;
+  }
   .demo-tag {
-    top: 3px;
-    left: 6px;
     padding: 0 8px;
     font-size: 11px;
-    line-height: 1.5;
   }
 }
 

@@ -728,6 +728,14 @@ function checkLayout(m, label) {
   // Controls are within the viewport.
   assert.ok(m.ctl.top >= 0 && m.ctl.bottom <= m.vh + 0.5, `${label}: controls off screen`);
   assert.ok(m.ctl.left >= 0 && m.ctl.right <= m.vw + 0.5, `${label}: controls too wide`);
+  // Act 5's demo tag sits above the page, inside the column, never over resume content.
+  if (m.tag) {
+    assert.ok(m.tag.top >= m.col.top - 0.5, `${label}: demo tag above its column`);
+    for (const s of m.sheets) {
+      if (s.right <= m.tag.left || s.left >= m.tag.right) continue;
+      assert.ok(m.tag.bottom <= s.top + 0.5, `${label}: demo tag covers the page`);
+    }
+  }
   if (m.short) {
     // A short landscape window (a phone on its side): terminal | one page at a time, at the
     // column's width (no smaller than on a phone held upright), scrolling inside its column;

@@ -118,7 +118,10 @@ pageSwitch.addEventListener("click", (e) => {
   fit({ animate: true });
 });
 
-resume.onPagesChange(() => fit({ animate: !stage.classList.contains("is-instant") }));
+const refit = () => fit({ animate: !stage.classList.contains("is-instant") });
+resume.onPagesChange(refit);
+// Act 5 keeps a strip above the page free for its demo tag (style.css).
+new MutationObserver(refit).observe(stage, { attributeFilter: ["data-act"] });
 new ResizeObserver(() => fit()).observe(stage);
 stacked.addEventListener("change", () => fit());
 short.addEventListener("change", () => fit());
