@@ -5,7 +5,9 @@
 // font and TERM_SHARE of the width; the page column takes the rest, and the whole spread is
 // scaled to fit it (by height when it can, so one page fills the column's height). Phone: one
 // page at a time at the column's full width, with a page switch when there are two; the terminal
-// below gets what is left of the screen (style.css, from --page-h). A page-count change zooms
+// below gets what is left of the screen (style.css, from --page-h). Short landscape (a phone on its
+// side): terminal | one page at a time at its column's width (at most full size), scrolling inside
+// the column. A page-count change zooms
 // (CSS transitions on --s and --sw); a resize or an instant state change doesn't.
 
 import { ACTS } from "./acts.js";
@@ -26,7 +28,11 @@ const pageSwitch = document.getElementById("page-switch");
 const term = document.getElementById("term");
 const resume = createResume(document.getElementById("resume-host"));
 const terminal = createTerminal(term);
-const stacked = matchMedia("(max-width: 799px)");
+// Keep in step with the media queries in style.css.
+const stacked = matchMedia(
+  "(max-width: 799px) and (orientation: portrait), (max-width: 799px) and (min-height: 501px)",
+);
+const short = matchMedia("(max-height: 500px) and (orientation: landscape)");
 
 let shownPage = 0; // the page shown on a phone
 let lastPages = resume.pageCount();
@@ -64,9 +70,13 @@ function fit({ animate = false } = {}) {
   let scale;
   let viewW = width;
   let termMin = MIN_TERM;
+  const onePage = stacked.matches || short.matches;
   if (stacked.matches) {
     viewW = PAGE_W;
     scale = (pageCol.clientWidth - padX) / PAGE_W;
+  } else if (short.matches) {
+    viewW = PAGE_W;
+    scale = Math.min(1, (pageCol.clientWidth - padX) / PAGE_W);
   } else {
     const ts = getComputedStyle(term);
     const ss = getComputedStyle(stage);
@@ -88,7 +98,7 @@ function fit({ animate = false } = {}) {
     {
       "--s": scale,
       "--sw": viewW,
-      "--off": stacked.matches ? shownPage * (PAGE_W + PAGE_GAP) : 0,
+      "--off": onePage ? shownPage * (PAGE_W + PAGE_GAP) : 0,
     },
     animate,
   );
@@ -104,12 +114,14 @@ pageSwitch.addEventListener("click", (e) => {
   const button = e.target.closest("button[data-page]");
   if (!button) return;
   shownPage = +button.dataset.page - 1;
+  pageCol.scrollTop = 0; // short landscape: the new page from its top
   fit({ animate: true });
 });
 
 resume.onPagesChange(() => fit({ animate: !stage.classList.contains("is-instant") }));
 new ResizeObserver(() => fit()).observe(stage);
 stacked.addEventListener("change", () => fit());
+short.addEventListener("change", () => fit());
 
 const events = [];
 

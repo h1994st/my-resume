@@ -645,6 +645,7 @@ test("the terminal stays scrolled to its last line after every jump", async ({ n
 
 const SIZES = [
   [390, 844],
+  [844, 390], // a phone in landscape
   [1280, 720],
   [1920, 1080],
   [2560, 1440],
@@ -681,7 +682,10 @@ const layout = (page) =>
       vw: innerWidth,
       vh: innerHeight,
       scrollWidth: document.documentElement.scrollWidth,
-      stacked: matchMedia("(max-width: 799px)").matches,
+      stacked: matchMedia(
+        "(max-width: 799px) and (orientation: portrait), (max-width: 799px) and (min-height: 501px)",
+      ).matches,
+      short: matchMedia("(max-height: 500px) and (orientation: landscape)").matches,
       pages: window.__demo.resume.pageCount(),
       scale: parseFloat(getComputedStyle(box).getPropertyValue("--s")),
       stage: rect("#stage"),
@@ -693,6 +697,10 @@ const layout = (page) =>
         bottom: col.getBoundingClientRect().bottom - parseFloat(cs.paddingBottom),
       },
       box: rect("#page-box"),
+      tag: (() => {
+        const el = document.querySelector(".demo-tag");
+        return getComputedStyle(el).display !== "none" ? el.getBoundingClientRect().toJSON() : null;
+      })(),
       sheets: shown,
       term: rect("#term"),
       termCols: term.clientWidth / ch,
@@ -714,11 +722,35 @@ function checkLayout(m, label) {
     m.box.left >= m.colInner.left - 1 && m.box.right <= m.colInner.right + 1,
     `${label}: page box ${m.box.left}–${m.box.right} outside column ${m.colInner.left}–${m.colInner.right}`,
   );
-  assert.ok(m.box.bottom <= m.colInner.bottom + 1, `${label}: page box overflows its column`);
+  if (!m.short) {
+    assert.ok(m.box.bottom <= m.colInner.bottom + 1, `${label}: page box overflows its column`);
+  }
   // Controls are within the viewport.
   assert.ok(m.ctl.top >= 0 && m.ctl.bottom <= m.vh + 0.5, `${label}: controls off screen`);
   assert.ok(m.ctl.left >= 0 && m.ctl.right <= m.vw + 0.5, `${label}: controls too wide`);
-  if (m.stacked) {
+  if (m.short) {
+    // A short landscape window (a phone on its side): terminal | one page at a time, at the
+    // column's width (no smaller than on a phone held upright), scrolling inside its column;
+    // the stage and its controls fit the window.
+    assert.ok(near(m.stage.bottom, m.vh), `${label}: stage ends at ${m.stage.bottom}, not ${m.vh}`);
+    assert.ok(m.scale >= 0.43, `${label}: page scale ${m.scale.toFixed(3)}`);
+    assert.ok(
+      near(m.box.width, Math.min(m.colInner.right - m.colInner.left, 816), 2),
+      `${label}: page ${m.box.width}px wide in a ${m.colInner.right - m.colInner.left}px column`,
+    );
+    const inBox = m.sheets.filter((s) => s.left >= m.box.left - 1 && s.right <= m.box.right + 1);
+    assert.equal(inBox.length, 1, `${label}: one page shown`);
+    assert.equal(Boolean(m.indicator), m.pages > 1, `${label}: page switch shown iff 2 pages`);
+    if (m.indicator) {
+      assert.ok(
+        m.indicator.top >= m.col.top && m.indicator.bottom <= m.col.bottom + 1,
+        `${label}: page switch outside the visible column`,
+      );
+    }
+    assert.ok(m.term.right <= m.col.left, `${label}: terminal overlaps the page column`);
+    assert.ok(m.term.bottom <= m.ctl.top + 1, `${label}: terminal hidden under the controls`);
+    assert.ok(m.term.height >= 200, `${label}: terminal only ${m.term.height}px tall`);
+  } else if (m.stacked) {
     // One page at a time, at the viewport's width less a 16px gutter on each side.
     assert.ok(near(m.box.width, m.vw - 32, 2), `${label}: page ${m.box.width}px wide on a phone`);
     const inBox = m.sheets.filter((s) => s.left >= m.box.left - 1 && s.right <= m.box.right + 1);
@@ -756,7 +788,12 @@ function checkLayout(m, label) {
 test("layout: every act end at every size, with screenshots", async ({ newPage }) => {
   const problems = [];
   for (const [width, height] of SIZES) {
-    const page = await newPage({ width, height, mobile: width < 800, deviceScaleFactor: 1 });
+    const page = await newPage({
+      width,
+      height,
+      mobile: width < 800 || height < 500,
+      deviceScaleFactor: 1,
+    });
     await page.goto("/");
     for (let act = 1; act <= 5; act++) {
       await endOfAct(page, act);
@@ -932,8 +969,9 @@ test("head: title, description, theme colour, Open Graph image, favicon", async 
 test("autoplay starts when a stage taller than two viewports fills the screen", async ({
   newPage,
 }) => {
-  // Phone landscape: the stacked stage is far taller than the viewport.
-  const page = await newPage({ width: 740, height: 320, mobile: true, deviceScaleFactor: 2 });
+  // A narrow landscape window just too tall for the short layout: the stacked stage is far taller
+  // than the viewport.
+  const page = await newPage({ width: 790, height: 520, mobile: true, deviceScaleFactor: 2 });
   await page.goto("/");
   const ratio = await page.eval(() => {
     const r = document.getElementById("stage").getBoundingClientRect();
