@@ -8,7 +8,6 @@ import { ACTORS, CUES, SCENES } from "./scenes.js";
 import { initTheme } from "./theme.js";
 
 const events = [];
-initTheme({ onChange: (theme) => events.push({ name: "theme", params: { theme } }) });
 
 // analytics.js, loaded after the film's first paint; events before it wait in `early`.
 let analytics;
@@ -17,6 +16,14 @@ function track(name, params) {
   if (analytics) analytics.track(name, params);
   else if (early.length < 16) early.push([name, params]);
 }
+
+// The toggle only: not the system setting, not the load.
+initTheme({
+  onChange: (theme) => {
+    events.push({ name: "theme", params: { theme } });
+    track("theme_change", { theme });
+  },
+});
 
 // The film's events as analytics sees them: the first interaction, each act once, completion once.
 let began = false;

@@ -2590,50 +2590,71 @@ test("pen: marks and notes draw on, resolve when drawn, and stop on abort", asyn
 const dataLayer = (page) =>
   page.eval(() => (window.dataLayer ? window.dataLayer.map((c) => Array.from(c)) : null));
 
-test("analytics: debug mode fills dataLayer with config and the three demo events", async ({
-  newPage,
-}) => {
+test("analytics: debug mode fills dataLayer with the exact event sequence", async ({ newPage }) => {
   const page = await newPage();
-  await page.goto("/?analytics=debug");
+  await page.goto("/?analytics=debug&speed=8");
   await page.eval(() => window.__demo.film.pause());
   await page.waitFor(() => window.dataLayer?.some((c) => c[0] === "config"));
   await page.key("ArrowRight");
+  const before = await page.eval(() => document.documentElement.dataset.theme ?? "");
+  await page.eval(() => document.getElementById("theme-toggle").click());
+  const theme = await page.eval(() => document.documentElement.dataset.theme);
+  assert.notEqual(theme, before);
   await page.eval(() => document.querySelector('.fc-seg[data-scene="3"]').click());
   await page.eval(() => {
     const { film } = window.__demo;
     while (film.scene < film.sceneCount - 1) film.next();
   });
+  await page.eval(() => document.getElementById("theme-toggle").click());
+  const back = await page.eval(() => document.documentElement.dataset.theme);
+  const names = ["problem", "meet", "job", "prompt", "plan", "tailor", "ship", "update", "cta"];
   const count = await page.eval(() => window.__demo.film.sceneCount);
-  const acts = await page.eval(() => [
-    ...new Set(window.__demo.events.filter((e) => e.name === "act").map((e) => e.params.act)),
-  ]);
+  assert.equal(count, 9);
   const commands = (await dataLayer(page)).map(([cmd, a, b]) => [cmd, a, b]);
   assert.equal(commands[0][0], "js");
-  assert.equal(commands[1][0], "config");
-  assert.equal(commands[1][1], "G-ZMH6NLL7C7");
-  assert.deepEqual(commands[1][2], { content_group: "my-resume" });
+  assert.deepEqual(commands[1].slice(0, 3), [
+    "config",
+    "G-ZMH6NLL7C7",
+    { content_group: "my-resume" },
+  ]);
   const events = commands.slice(2);
   assert.ok(
     events.every(([cmd]) => cmd === "event"),
     "only event commands after config",
   );
-  assert.ok(!events.some(([, name]) => name === "page_view"), "no manual page_view");
+  const shown = events.filter(([, n]) => n === "demo_act").map(([, , p]) => p.act);
+  assert.deepEqual(
+    events.filter(([, n]) => n === "demo_act").map(([, , p]) => p.act_name),
+    shown.map((a) => names[a - 1]),
+  );
+  assert.deepEqual(shown, [...new Set(shown)], "each act once");
+  assert.deepEqual(shown, [1, 2, 3, 4, 5, 6, 7, 8, 9], "every act, in order");
+  const order = events.map(([, n]) => n);
+  assert.equal(order[0], "demo_act", "act 1 shows on load, before any interaction");
+  assert.equal(order[1], "tutorial_begin", "then the first interaction");
+  assert.equal(order.at(-2), "tutorial_complete", "complete, then the second toggle");
+  assert.deepEqual([...new Set(order)].sort(), [
+    "demo_act",
+    "theme_change",
+    "tutorial_begin",
+    "tutorial_complete",
+  ]);
+  assert.deepEqual(
+    events.filter(([, n]) => n === "theme_change"),
+    [
+      ["event", "theme_change", { theme }],
+      ["event", "theme_change", { theme: back }],
+    ],
+  );
   assert.deepEqual(
     events.filter(([, n]) => n === "tutorial_begin"),
     [["event", "tutorial_begin", { method: "key" }]],
   );
-  const shown = events.filter(([, n]) => n === "demo_act").map(([, , p]) => p.act);
-  assert.deepEqual(shown, acts, "demo_act once per act, in order");
-  for (let a = 2; a <= count; a++) assert.ok(shown.includes(a), `act ${a} reached: ${shown}`);
   assert.deepEqual(
     events.filter(([, n]) => n === "tutorial_complete"),
     [["event", "tutorial_complete", { method: "manual" }]],
   );
-  assert.deepEqual([...new Set(events.map(([, n]) => n))].sort(), [
-    "demo_act",
-    "tutorial_begin",
-    "tutorial_complete",
-  ]);
+  assert.ok(!events.some(([, name]) => name === "page_view"), "no manual page_view");
   assert.equal(
     await page.eval(() => document.querySelectorAll('script[src*="googletagmanager"]').length),
     0,
