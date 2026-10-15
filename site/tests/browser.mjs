@@ -88,6 +88,8 @@ function launchChrome() {
       "--disable-background-timer-throttling",
       "--disable-renderer-backgrounding",
       "--hide-scrollbars",
+      // CI runners (containers, restricted user namespaces) can't use Chrome's sandbox.
+      ...(process.env.CI ? ["--no-sandbox"] : []),
       "about:blank",
     ],
     { stdio: ["ignore", "ignore", "pipe"] },
@@ -913,12 +915,15 @@ test("head: title, description, theme colour, Open Graph image, favicon", async 
     description: document.querySelector('meta[name="description"]')?.content,
     theme: document.querySelector('meta[name="theme-color"]')?.content,
     og: document.querySelector('meta[property="og:image"]')?.content,
+    ogUrl: document.querySelector('meta[property="og:url"]')?.content,
     icon: document.querySelector('link[rel="icon"]')?.getAttribute("href"),
   }));
   assert.equal(head.title, "my-resume");
   assert.ok(head.description?.length > 20, "a description");
   assert.ok(head.theme, "a theme colour");
-  assert.equal(head.og, "img/canonical-1.png");
+  // Open Graph needs absolute URLs.
+  assert.equal(head.og, "https://shengtuo.me/my-resume/img/canonical-1.png");
+  assert.equal(head.ogUrl, "https://shengtuo.me/my-resume/");
   assert.match(head.icon ?? "", /^data:image\/svg\+xml,/);
 });
 
