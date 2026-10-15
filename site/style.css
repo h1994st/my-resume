@@ -1,0 +1,350 @@
+/* Fonts: the template's own OTFs (SIL OFL), copied to fonts/ by site/assemble.sh. */
+@font-face {
+  font-family: "Source Serif 4 SmText";
+  src: url("fonts/SourceSerif4/SourceSerif4SmText-Regular.otf") format("opentype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+@font-face {
+  font-family: "Source Serif 4 SmText";
+  src: url("fonts/SourceSerif4/SourceSerif4SmText-It.otf") format("opentype");
+  font-weight: 400;
+  font-style: italic;
+  font-display: block;
+}
+@font-face {
+  font-family: "Source Serif 4 SmText";
+  src: url("fonts/SourceSerif4/SourceSerif4SmText-Semibold.otf") format("opentype");
+  font-weight: 600;
+  font-style: normal;
+  font-display: block;
+}
+@font-face {
+  font-family: "Source Serif 4 SmText";
+  src: url("fonts/SourceSerif4/SourceSerif4SmText-SemiboldIt.otf") format("opentype");
+  font-weight: 600;
+  font-style: italic;
+  font-display: block;
+}
+@font-face {
+  font-family: "Source Sans 3";
+  src: url("fonts/SourceSans3/SourceSans3-Regular.otf") format("opentype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+@font-face {
+  font-family: "Source Sans 3";
+  src: url("fonts/SourceSans3/SourceSans3-It.otf") format("opentype");
+  font-weight: 400;
+  font-style: italic;
+  font-display: block;
+}
+@font-face {
+  font-family: "Source Sans 3";
+  src: url("fonts/SourceSans3/SourceSans3-Semibold.otf") format("opentype");
+  font-weight: 600;
+  font-style: normal;
+  font-display: block;
+}
+@font-face {
+  font-family: "Source Sans 3";
+  src: url("fonts/SourceSans3/SourceSans3-SemiboldIt.otf") format("opentype");
+  font-weight: 600;
+  font-style: italic;
+  font-display: block;
+}
+
+/* ------------------------------------------------------------------------------------------
+   Resume replica (site/resume.js). Geometry follows common/resume.cls at 96 px/in:
+   1pt = 1.3333px; US Letter 816 × 1056; margins 0.6in = 57.6px; body 10.5pt/13.9pt.
+   Everything is scoped under .resume so page layout CSS can't collide with it.
+   ------------------------------------------------------------------------------------------ */
+.resume {
+  --r-accent: #374151;
+  --r-pill: #ebecee; /* accent 11% */
+  --r-spine: #c3c6cb; /* accent 30% */
+  --r-pill-text: #222222;
+  --r-secondary: #404040;
+  --r-headline: #333333;
+  --r-foot: #666666;
+  --r-serif: "Source Serif 4 SmText", Georgia, serif;
+  --r-sans: "Source Sans 3", "Helvetica Neue", Arial, sans-serif;
+
+  position: relative;
+  width: 816px;
+  height: 1056px;
+  color: #000;
+  font-family: var(--r-serif);
+  font-size: 14px; /* 10.5pt */
+  line-height: 18.533px; /* 13.9pt */
+  font-kerning: normal;
+  text-align: left;
+  hyphens: manual;
+  overflow-wrap: normal;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+.resume *,
+.resume *::before {
+  box-sizing: border-box;
+}
+.resume b {
+  font-weight: 600;
+}
+
+/* Page sheets behind the columns. */
+.resume .r-sheets,
+.resume .r-ghosts {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.resume .r-sheet {
+  position: absolute;
+  top: 0;
+  width: 816px;
+  height: 1056px;
+  background: #fff;
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 0.06),
+    0 6px 24px rgb(0 0 0 / 0.08);
+}
+.resume .r-foot {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 1018.2px; /* baseline 0.32in below the text area */
+  font: 12px/14.667px var(--r-sans); /* 9pt */
+  color: var(--r-foot);
+  text-align: center;
+}
+
+/* One column per page: column width = content width, height = content height. */
+.resume .r-flow {
+  position: absolute;
+  left: 57.6px;
+  top: 57.6px;
+  width: 700.8px;
+  height: 940.8px;
+  column-width: 700.8px;
+  column-gap: 163.2px; /* page gap (48px) + both margins */
+  column-fill: auto;
+}
+
+/* Header: name and headline left, contact block right, bottoms aligned; then the accent bar. */
+.resume .r-header {
+  margin-top: -5.9px; /* TeX starts the name at its glyph top, CSS at the font's ascent */
+  display: flex;
+  justify-content: space-between;
+  align-items: last baseline;
+}
+.resume .r-header-main {
+  width: 62%;
+}
+.resume .r-name {
+  font: 600 37.333px/40px var(--r-sans); /* 28pt/30pt */
+}
+.resume .r-headline {
+  margin-top: 2.5px; /* 4.5pt, less CSS half-leading */
+  font: 15.333px/18.667px var(--r-sans); /* 11.5pt/14pt */
+  color: var(--r-headline);
+}
+.resume .r-contact {
+  width: 36%;
+  font: 13px/16.667px var(--r-sans); /* 9.75pt/12.5pt */
+  text-align: right;
+}
+.resume .r-bar {
+  height: 4px; /* 3pt */
+  margin-top: 22.2px; /* 9pt + interline glue above the rule */
+  background: var(--r-accent);
+}
+.resume .r-bar + .r-sec {
+  margin-top: 18px;
+}
+
+/* Sections: keep blocks never split; needspace (resume.js) may force a page break. */
+.resume .r-sec {
+  margin-top: 13px; /* \addvspace{10.5pt}, as measured against the PDF */
+}
+.resume .r-sec[data-sec="summary"] + .r-sec {
+  margin-top: 13.9px; /* the skills rows end a little lower */
+}
+.resume .r-sec-spine + .r-sec {
+  margin-top: 16.3px; /* the spine's framed box ends a little lower */
+}
+.resume .r-sec.r-break {
+  break-before: column;
+  margin-top: 0;
+}
+.resume .r-keep,
+.resume .r-bullet,
+.resume .r-pub,
+.resume .r-lineitem,
+.resume .r-skill,
+.resume .r-degree {
+  break-inside: avoid;
+}
+
+/* Heading: solid accent tab, then a 1.1pt rule to the right margin, 2.5pt above the baseline. */
+.resume .r-head {
+  display: flex;
+  align-items: baseline;
+  margin: 0 0 4.167px; /* \vspace{5pt}, as measured against the PDF */
+  font: 600 16px/18.667px var(--r-sans); /* 12pt/14pt */
+  break-after: avoid;
+}
+.resume .r-sec-spine .r-head {
+  margin-bottom: 6.667px; /* \vspace{5pt} before the spine's framed box */
+}
+.resume .r-tab {
+  padding: 0.4px 10px 2.667px; /* inner ysep 2pt, xsep 7.5pt; less on top for the line box */
+  border-radius: 2px;
+  background: var(--r-accent);
+  color: #fff;
+}
+.resume .r-rule {
+  position: relative;
+  top: -3.333px; /* bottom edge 2.5pt above the baseline */
+  flex: 1;
+  height: 1.467px;
+  background: var(--r-accent);
+}
+
+/* Summary */
+.resume .r-summary {
+  margin: 0;
+}
+.resume .r-skill {
+  display: flex;
+  align-items: baseline;
+  margin-top: 4px; /* 3pt */
+}
+.resume .r-keep + .r-skill {
+  margin-top: 3px; /* as measured against the PDF */
+}
+.resume .r-skill-label {
+  flex: none;
+  width: 117.333px; /* 88pt */
+  font: 600 13.333px/13.333px var(--r-sans); /* 10pt; short line box keeps the row 13.9pt */
+}
+
+/* Spine: a 1.5pt line 3.75pt from the margin; entry text starts 18.75pt in. */
+.resume .r-spine {
+  display: flow-root;
+  margin-left: 5px;
+  padding-left: 18px;
+  border-left: 2px solid var(--r-spine);
+}
+.resume .r-entry {
+  position: relative;
+}
+.resume .r-gap.r-entry {
+  margin-top: 7.7px; /* 6pt between entries, as measured against the PDF */
+}
+.resume .r-node {
+  position: absolute;
+  left: -25px;
+  top: 4.3px;
+  width: 12px;
+  height: 12px;
+  border: 2.533px solid var(--r-accent); /* ring: radius 3.55pt, line 1.9pt */
+  border-radius: 50%;
+  background: #fff;
+}
+.resume .r-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.resume .r-title {
+  flex: 1;
+  font: 14.667px/18.533px var(--r-sans); /* 11pt */
+  font-variant-numeric: tabular-nums;
+}
+.resume .r-pill {
+  flex: none;
+  padding: 1.6px 6.667px; /* inner ysep 1.2pt, xsep 5pt */
+  border-radius: 8px; /* 6pt */
+  background: var(--r-pill);
+  color: var(--r-pill-text);
+  font: 13.333px/13.333px var(--r-sans); /* 10pt */
+  font-variant-numeric: tabular-nums;
+}
+.resume .r-sub {
+  font-style: italic;
+}
+.resume .r-bullet {
+  position: relative;
+  padding-left: 15.4px; /* 1.1em */
+}
+.resume .r-bullet::before {
+  content: "•";
+  position: absolute;
+  left: 3.5px; /* labelindent 0.25em */
+}
+
+/* Education */
+.resume .r-gap.r-degree {
+  margin-top: 5.333px; /* 4pt */
+}
+.resume .r-date {
+  flex: none;
+  font: 13.333px/13.333px var(--r-sans); /* 10pt; short line box keeps the row 13.9pt */
+  color: var(--r-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Publications: hanging 2em, number in the hang. */
+.resume .r-pub {
+  position: relative;
+  padding-left: 28px; /* 2em */
+}
+.resume .r-gap.r-pub {
+  margin-top: 4px; /* 3pt */
+}
+.resume .r-num {
+  position: absolute;
+  left: 0;
+  font: 13.333px/18.533px var(--r-sans); /* 10pt */
+  color: var(--r-secondary);
+}
+.resume .r-award {
+  color: var(--r-accent);
+  font-style: italic;
+  font-weight: 600;
+}
+
+/* Service and honors: text with right-aligned years. */
+.resume .r-lineitem {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.resume .r-gap.r-lineitem {
+  margin-top: 2px; /* 1.5pt */
+}
+
+/* highlight(ids) */
+.resume [data-id] {
+  transition:
+    background-color 240ms ease-out,
+    box-shadow 240ms ease-out;
+}
+.resume .is-hl {
+  border-radius: 2px;
+  background-color: rgb(55 65 81 / 0.1);
+  box-shadow: 0 0 0 3px rgb(55 65 81 / 0.1);
+}
+.resume .r-ghost {
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .resume [data-id] {
+    transition: none;
+  }
+}
