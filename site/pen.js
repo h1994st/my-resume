@@ -11,7 +11,7 @@
 //
 // Options: layer (the positioned element the mark is placed in; default: the target's closest
 // [data-pen-layer], else its offset parent, else <body>), signal (an AbortSignal: aborting stops
-// the drawing, removes the mark, and rejects with the signal's reason), ink ("paper" or "desk";
+// the drawing, removes the mark, and rejects with the signal's reason), ink ("paper", "desk", or "term" for page.js's dark mini terminal;
 // default: "paper" inside a [data-paper] element: for a note, the layer it is written in; for a
 // mark, its target element, else its layer), duration (ms). Marks also take pad, seed (the
 // hand-drawn wobble is seeded, so the same call draws the same mark), and for arrows `from` (a

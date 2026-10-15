@@ -5,7 +5,7 @@
 // in document order (nested groups draw their own):
 //   [data-pen="circle|underline|strike|arrow"] marks that element; an arrow starts at
 //     data-pen-from="dx dy", an offset from the element's right edge and middle; data-pen-ink
-//     overrides the ink (pen.js: paper, desk; style.css adds term, for marks on a terminal card).
+//     overrides the ink (pen.js: paper, desk, term, for marks on a terminal card).
 //   [data-note="text"] writes a note beside that element: data-note-side is right, left, above, or
 //     below (pen.js), or "from" (above an arrow's start); a note is kept inside its layer's width.
 //   A close-up (.closeup) marks a box on a crop of the real page (.closeup-crop, inside its

@@ -379,6 +379,7 @@
   --paper: #ffffff;
   --pen: #c2410c; /* on paper */
   --pen-desk: #c2410c; /* on the desk */
+  --pen-term: #fb923c; /* on the terminal card (dark in both themes) */
   --line: rgb(29 35 43 / 0.18);
   --cat-edge: transparent; /* the cats' outline, for the dark desk */
   --term-edge: transparent; /* the terminal card's edge, for the dark desk */
@@ -407,6 +408,7 @@
     --muted: #a3acb8;
     --paper: #f7f7f5;
     --pen-desk: #fb923c;
+    --pen-term: #fb923c;
     --line: rgb(238 241 245 / 0.22);
     --cat-edge: rgb(255 255 255 / 0.2);
     --term-edge: rgb(255 255 255 / 0.14);
@@ -429,6 +431,7 @@
   --muted: #a3acb8;
   --paper: #f7f7f5;
   --pen-desk: #fb923c;
+  --pen-term: #fb923c;
   --line: rgb(238 241 245 / 0.22);
   --cat-edge: rgb(255 255 255 / 0.2);
   --term-edge: rgb(255 255 255 / 0.14);
@@ -2224,7 +2227,7 @@ pre.error,
 }
 /* On a terminal card (dark in both themes). */
 .pen-mark[data-ink="term"] {
-  color: #fb923c;
+  color: var(--pen-term);
 }
 
 /* ------------------------------------------------------------------------------------------
