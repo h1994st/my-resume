@@ -1022,6 +1022,11 @@ test("cues: no confetti with reduced motion", async ({ newPage }) => {
 test("film: every shot frames its target inside the free area at every size", async ({
   newPage,
 }) => {
+  // Every step's shot, as its end frame shows it: the target in the free area; terminal text
+  // at 12 px or more on screen; on phones, resume text in a shot on the replica at 11 px or
+  // more (a zoom crops the line rather than shrink it); the notes the step writes in view; and
+  // the terminal card the shape of the camera's free area.
+  const PHONES = new Set(["390x844", "844x390"]);
   const problems = [];
   for (const [width, height] of SIZES) {
     const page = await newPage({ width, height, mobile: width < 800 || height < 500 });
@@ -1036,43 +1041,114 @@ test("film: every shot frames its target inside the free area at every size", as
           if (!step.shot) return;
           film.renderStep(n, k);
           const term = film.actor("term");
-          const onTerm = JSON.stringify(step.shot).includes('"term"');
-          const film_ = document.getElementById("film").getBoundingClientRect();
+          const resume = film.actor("resume");
+          const target = JSON.stringify(film.shot().target);
+          const box = document.getElementById("film").getBoundingClientRect();
+          const free = {
+            left: box.left,
+            right: box.right,
+            top: box.top,
+            bottom: document.querySelector(".film-caption").getBoundingClientRect().top,
+          };
+          const a = film.camera.area();
           out.push({
             at: `scene ${n + 1} step ${k + 1}`,
             focus: film.focus(),
-            free: {
-              left: film_.left,
-              right: film_.right,
-              top: film_.top,
-              bottom: document.querySelector(".film-caption").getBoundingClientRect().top,
-            },
+            free,
             // The terminal's text on screen (px), for shots on the terminal card.
             termPx:
-              onTerm && term
+              target.includes('"term"') && term
                 ? parseFloat(getComputedStyle(term).fontSize) * film.camera.view.s
                 : null,
+            // The replica's body text on screen (px), for shots on its content.
+            resumePx:
+              target.includes('"actor":"resume"') && resume
+                ? parseFloat(getComputedStyle(resume.querySelector(".resume")).fontSize) *
+                  film.camera.view.s
+                : null,
+            notes: (step.cues ?? [])
+              .filter((c) => c.do === "note" && c.id)
+              .map((c) => {
+                const r = film.world
+                  .querySelector(`.pen-note[data-note="${c.id}"]`)
+                  .getBoundingClientRect();
+                return {
+                  id: c.id,
+                  r: { left: r.left, right: r.right, top: r.top, bottom: r.bottom },
+                };
+              }),
+            card: term ? { narrow: term.offsetWidth < 1000, portrait: a.w < a.h * 0.9 } : null,
           });
         });
       });
       return out;
     });
+    const inside = (r, box) =>
+      r &&
+      r.left >= box.left - 2 &&
+      r.right <= box.right + 2 &&
+      r.top >= box.top - 2 &&
+      r.bottom <= box.bottom + 2;
+    const size = `${width}x${height}`;
     for (const s of shots) {
-      const f = s.focus;
-      const ok =
-        f &&
-        f.left >= s.free.left - 2 &&
-        f.right <= s.free.right + 2 &&
-        f.top >= s.free.top - 2 &&
-        f.bottom <= s.free.bottom + 2;
-      if (!ok) problems.push(`${width}×${height} ${s.at}: focus outside the free area`);
+      const at = `${width}×${height} ${s.at}`;
+      if (!inside(s.focus, s.free)) problems.push(`${at}: focus outside the free area`);
       if (s.termPx !== null && s.termPx < 12) {
-        problems.push(`${width}×${height} ${s.at}: terminal text ${s.termPx.toFixed(1)} px`);
+        problems.push(`${at}: terminal text ${s.termPx.toFixed(1)} px`);
+      }
+      if (PHONES.has(size) && s.resumePx !== null && s.resumePx < 11) {
+        problems.push(`${at}: resume text ${s.resumePx.toFixed(1)} px`);
+      }
+      for (const n of s.notes) {
+        if (!inside(n.r, s.free)) problems.push(`${at}: note "${n.id}" out of view`);
+      }
+      if (s.card && s.card.narrow !== s.card.portrait) {
+        problems.push(
+          `${at}: a ${s.card.narrow ? "narrow" : "wide"} card in a ${s.card.portrait ? "portrait" : "landscape"} frame`,
+        );
       }
     }
     await page.close();
   }
   assert.deepEqual(problems, []);
+});
+
+test("film: a call to action fading out can't be reached", async ({ newPage }) => {
+  const page = await newPage();
+  await page.goto("/");
+  await pausedFilm(page);
+  const got = await page.eval(() => {
+    const { film } = window.__demo;
+    film.goTo(film.sceneCount - 1);
+    const old = document.querySelector(".film-overlay .film-cta");
+    film.play(); // the scene starts over: its end frame fades out
+    const out = { fading: "ghost" in old.dataset, inert: old.inert };
+    film.pause();
+    return out;
+  });
+  assert.deepEqual(got, { fading: true, inert: true });
+});
+
+test("cues: the stamp's impact jolts the stamp with the paper", async ({ newPage }) => {
+  const page = await newPage();
+  await page.goto("/?speed=2");
+  await pausedFilm(page);
+  const got = await page.eval(async () => {
+    const { film } = window.__demo;
+    film.goTo(6);
+    film.play();
+    for (let i = 0; i < 2000 && !film.busy.includes("stamp"); i++) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    const jolts = (el) =>
+      el
+        .getAnimations()
+        .filter((a) => a.effect.getKeyframes().some((f) => f.translate === "0px 7px")).length;
+    const out = { resume: jolts(film.actor("resume")), stamp: jolts(film.actor("tag")) };
+    film.pause();
+    return out;
+  });
+  assert.deepEqual(got, { resume: 1, stamp: 1 });
 });
 
 test("film: a scripted run emits act 1–9, then complete", async ({ newPage }) => {
@@ -1398,6 +1474,7 @@ test("film: autoplay starts in a phone held sideways", async ({ newPage }) => {
 const SIZES = [
   [390, 844],
   [844, 390], // a phone in landscape
+  [1024, 1366], // a tablet held upright
   [1280, 720],
   [1920, 1080],
   [2560, 1440],

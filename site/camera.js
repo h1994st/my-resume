@@ -14,6 +14,7 @@
 //   camera.rectOf(el) → el's layout box in world units (offsets, so actor and camera transforms
 //     don't move it; a scrolled positioned ancestor, the terminal's log, does),
 //     camera.scaleFor(rect, { padding, maxScale }) → the scale frame() would use for it,
+//     camera.room({ padding }) → the free area less the padding (viewport px),
 //     camera.toClient(rect) → where a world rect is on screen now (client px),
 //     camera.area() → the free area in viewport px, camera.view → { x, y, s } (the world point
 //     at the area's centre and the scale), camera.moving → whether a move is in flight.
@@ -75,10 +76,15 @@ export function createCamera(viewport, world, { insets = () => ({}) } = {}) {
     return target instanceof Element ? rectOf(target) : target;
   }
 
-  function fit(r, { padding, maxScale = 2.5 } = {}) {
+  function room({ padding } = {}) {
     const a = area();
     const pad = padding ?? Math.round(Math.min(56, Math.max(12, Math.min(a.w, a.h) * 0.05)));
-    const s = Math.min((a.w - 2 * pad) / r.w, (a.h - 2 * pad) / r.h, maxScale);
+    return { w: a.w - 2 * pad, h: a.h - 2 * pad };
+  }
+
+  function fit(r, { padding, maxScale = 2.5 } = {}) {
+    const free = room({ padding });
+    const s = Math.min(free.w / r.w, free.h / r.h, maxScale);
     return { x: r.x + r.w / 2, y: r.y + r.h / 2, s: Math.max(0.02, s) };
   }
 
@@ -178,6 +184,7 @@ export function createCamera(viewport, world, { insets = () => ({}) } = {}) {
     frame,
     rectOf,
     scaleFor: (r, opts) => fit(r, opts).s,
+    room,
     toClient,
     area,
     get view() {

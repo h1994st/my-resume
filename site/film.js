@@ -3,7 +3,8 @@
 //
 // createFilm({ scenes, cues, actors, root, onEvent }) → film
 //   { play(), pause(), toggle(), next(), prev(), goTo(n), interact(method), renderEnd(n),
-//     renderStep(n, k) (step k's end frame, for tests), ready, scene, step, playing, animating,
+//     renderStep(n, k) (step k's end frame, for tests), shot() (the shot on screen: { target,
+//     rect }), ready, scene, step, playing, animating,
 //     seen, inView, busy, actor(id), focus(), camera, world, sceneCount, speed (the test-only
 //     ?speed, speed.js) }
 // `n` and `scene` are 0-based indexes into `scenes`; events count scenes from 1.
@@ -22,12 +23,15 @@
 //               { note }             a pen note, by the id its note cue gave it
 //               { x, y, w, h }       a rect in world units
 //               [ ... ]              several targets, framed together
-//             or { target, portrait?, grow?, context?, legible?, padding?, duration?,
-//             maxScale? }: `portrait` (a target, or { target, grow?, context?, legible? }) is
-//             framed instead while the free area is taller than wide; `grow` { top, right,
-//             bottom, left } adds world units around the target; `context` (a target) is
-//             framed with it as long as the scale stays at least `legible` (else the target
-//             alone: a phone keeps the text readable and drops the cat beside it); the rest go
+//             or { target, portrait?, grow?, context?, legible?, minScale?, anchor?, padding?,
+//             duration?, maxScale? }: `portrait` (a target, or a shot without `portrait`) is
+//             framed instead while the free area is portrait (data-shape, below); `grow`
+//             { top, right, bottom, left } adds world units around the target; `context` (a
+//             target) is framed with it as long as the scale stays at least `legible` (else the
+//             target alone: a phone keeps the text readable and drops the cat beside it);
+//             `minScale` crops a target that would be framed smaller than that to the part that
+//             fits at it, from its top left with `anchor: "start"` (a zoom on a line shows its
+//             start and lets the rest run off the frame), else around its centre; the rest go
 //             to camera.frame.
 //             An actor in a shot must be on the desk already, or be entered by this step with
 //             a full `at` (x, y, w, h). A shot is framed as its step starts, so put it on the
@@ -45,7 +49,10 @@
 //                  update?(el, props, ctx), enter?(el, props, signal, ctx) → Promise }
 //   `create` builds the element (the film positions it); `mount` runs once it is in the world;
 //   `update` runs when a scene keeps the actor (see below); `enter` replaces the default entrance.
-// ctx (for cue handlers): { world, overlay, camera, cache, reduced, actor(id), add(cue) → { el,
+// The film's root carries data-shape="portrait" while the camera's free area is taller than
+// wide (width < 0.9 × height), else "landscape": shots pick their portrait variant by it, and
+// style.css shapes the terminal card by it. It follows the caption and the window.
+// ctx (for cue handlers): { world, overlay, camera, cache, reduced, portrait(), actor(id), add(cue) → { el,
 //   kept, before }, place(el, at), remove(id), el(target) → Element, rect(target, layer) → rect
 //   in the layer's units, wait(ms, signal) }. `at` is { x, y, w?, h?, r? (deg), z? } in world
 //   units. `overlay` is a screen-space layer over the film that is not aria-hidden (the world
@@ -275,6 +282,7 @@ export function createFilm({ scenes, cues, actors, root, onEvent = () => {} }) {
     get reduced() {
       return reduced.matches;
     },
+    portrait: () => root.dataset.shape === "portrait",
     actor: (id) => cast.get(id)?.el ?? null,
     // Puts the actor of an enter cue on the desk; a kept actor (same id and kind) is reused.
     add(cue) {
@@ -340,8 +348,7 @@ export function createFilm({ scenes, cues, actors, root, onEvent = () => {} }) {
 
   function frameShot(step, { instant = false, signal } = {}) {
     let shot = shotOf(step);
-    const a = camera.area();
-    if (shot.portrait && a.w < a.h * 0.9) {
+    if (shot.portrait && ctx.portrait()) {
       const p = shot.portrait;
       shot = { ...shot, grow: undefined, context: undefined, ...(isShot(p) ? p : { target: p }) };
     }
@@ -358,7 +365,16 @@ export function createFilm({ scenes, cues, actors, root, onEvent = () => {} }) {
       const fit = { padding: shot.padding, maxScale: shot.maxScale };
       if (camera.scaleFor(wide, fit) >= (shot.legible ?? 0)) rect = wide;
     }
-    lastShot = { step, rect, area: camera.area() };
+    if (shot.minScale && camera.scaleFor(rect, shot) < shot.minScale) {
+      const free = camera.room({ padding: shot.padding });
+      const w = Math.min(rect.w, free.w / shot.minScale);
+      const h = Math.min(rect.h, free.h / shot.minScale);
+      rect =
+        shot.anchor === "start"
+          ? { x: rect.x, y: rect.y, w, h }
+          : { x: rect.x + (rect.w - w) / 2, y: rect.y + (rect.h - h) / 2, w, h };
+    }
+    lastShot = { step, rect, target: shot.target, area: camera.area() };
     return camera.frame(rect, {
       padding: shot.padding,
       duration: shot.duration,
@@ -376,6 +392,7 @@ export function createFilm({ scenes, cues, actors, root, onEvent = () => {} }) {
     caption.querySelector(".film-num").textContent = two(n + 1);
     caption.querySelector(".film-name").textContent = s.name;
     caption.querySelector(".film-line").innerHTML = emphasis(s.caption);
+    setShape();
     for (const a of caption.getAnimations({ subtree: true })) a.cancel();
     if (animate && !reduced.matches) {
       caption.animate(
@@ -445,7 +462,10 @@ export function createFilm({ scenes, cues, actors, root, onEvent = () => {} }) {
       }
     }
     for (const el of world.querySelectorAll(".pen-mark, .pen-note")) fadeOut(el);
-    for (const el of overlay.children) fadeOut(el);
+    for (const el of overlay.children) {
+      el.inert = true; // fading links can't be focused or clicked
+      fadeOut(el);
+    }
     for (const [id, rec] of [...cast]) {
       if (kinds.get(id) === rec.kind) continue;
       fadeOut(rec.el);
@@ -730,7 +750,13 @@ export function createFilm({ scenes, cues, actors, root, onEvent = () => {} }) {
   // A resize (or a caption that wraps differently) reframes the shot on screen: at once, or, mid
   // move, as a move. Nothing to do when the free area is the one the shot was framed for (a
   // scene's new caption is in place before its first shot is framed).
+  function setShape() {
+    const a = camera.area();
+    root.dataset.shape = a.w < a.h * 0.9 ? "portrait" : "landscape";
+  }
+
   const reframe = () => {
+    setShape();
     if (!lastShot || !isReady) return;
     const a = camera.area();
     const b = lastShot.area;
@@ -777,6 +803,7 @@ export function createFilm({ scenes, cues, actors, root, onEvent = () => {} }) {
     interact,
     renderEnd,
     renderStep: renderAt,
+    shot: () => (lastShot ? { target: lastShot.target, rect: lastShot.rect } : null),
     ready,
     camera,
     world,

@@ -1043,8 +1043,9 @@ a:hover {
   fill: currentColor;
 }
 
-/* A terminal card on the desk (terminal.js), only while Duna types (scenes 4, 5, 8). Wide in a
-   landscape window, narrow and tall in a portrait one: the camera frames its lines at a size
+/* A terminal card on the desk (terminal.js), only while Duna types (scenes 4, 5, 8). Wide while
+   the camera's free area is landscape, narrow and tall while it is portrait (film.js sets
+   data-shape): the camera frames its lines at a size
    that reads (scenes.js names its parts, not its size). The log keeps to its bottom, as a
    terminal does; older lines fade out under the title bar. */
 .term-card {
@@ -1060,11 +1061,9 @@ a:hover {
     var(--sheet-shadow);
   font-size: 24px;
 }
-@media (orientation: portrait) {
-  .term-card {
-    width: 640px;
-    height: 1240px;
-  }
+.film[data-shape="portrait"] .term-card {
+  width: 640px;
+  height: 1240px;
 }
 .term-bar {
   display: flex;
@@ -1122,15 +1121,15 @@ a:hover {
   border: 5px solid currentColor;
   border-radius: 16px;
   color: var(--pen);
-  font: 700 23px/1.25 var(--mono);
+  font: 700 27px/1.2 var(--mono);
   white-space: nowrap;
   opacity: 0.9;
   mix-blend-mode: multiply;
 }
 .stamp-paw svg {
   display: block;
-  width: 62px;
-  height: 62px;
+  width: 54px;
+  height: 54px;
   fill: currentColor;
 }
 .stamp-text {

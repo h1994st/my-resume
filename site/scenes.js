@@ -31,6 +31,9 @@
 //       closer); `text: true` marks the target's text, not its box (a strike as long as the line)
 //   note { id?, text, at, side?, gap?, size?, rotate?, weight?, on?, ink? }   a pen note; `at` is
 //       a point { x, y } (top left) or a target with `side`
+// `enter`, `note`, and `mark` cues also take `portrait` { ...fields }: used instead while the film's free
+// area is portrait (ctx.portrait()), so a phone held upright can keep a note or a cat inside a
+// cropped zoom.
 //   resume { id, state, highlight?, animate?, clear? }   the replica's state (resume-data.js
 //       keys); `clear` first wipes the pen marks on it (they would point at the old layout)
 //   proof { id, show }                   crossfades the replica's page 1 to img/tailored-1.png
@@ -365,7 +368,8 @@ function edgeToward(a, b, gap = 12) {
   return { x: cx + dx * s + (dx / len) * gap, y: cy + dy * s + (dy / len) * gap };
 }
 
-function markArgs(cue, ctx) {
+function markArgs(drawn, ctx) {
+  const cue = oriented(drawn, ctx);
   const el = cue.target.x === undefined ? ctx.el(cue.target) : null;
   const layer =
     cue.on === "world"
@@ -417,7 +421,8 @@ function textRect(el, layer, ctx) {
   return { x, y, w: Math.round(t.width / s), h: Math.round(t.height / s) };
 }
 
-function noteArgs(cue, ctx) {
+function noteArgs(written, ctx) {
+  const cue = oriented(written, ctx);
   const layer = cue.on ? ctx.el(cue.on) : ctx.world;
   const at = isPoint(cue.at) ? cue.at : ctx.rect(cue.at, layer);
   const opts = {
@@ -464,7 +469,8 @@ function setProof(el, show, animate) {
 
 export const CUES = {
   enter: {
-    run(cue, ctx, signal) {
+    run(entry, ctx, signal) {
+      const cue = oriented(entry, ctx);
       const { el, kept, before } = ctx.add(cue);
       if (kept) {
         const walk = cue.kind === "cat";
@@ -482,7 +488,7 @@ export const CUES = {
       return slide(el, cue.from, signal);
     },
     instant(cue, ctx) {
-      ctx.add(cue);
+      ctx.add(oriented(cue, ctx));
     },
   },
 
@@ -616,9 +622,10 @@ export const CUES = {
         { duration: 560, easing: "cubic-bezier(0.55, 0, 0.6, 1)" },
       );
       const done = [finish(landing, signal)];
+      // The impact jolts the paper and the ink on it together.
       const under = cue.jolt && ctx.actor(cue.jolt);
-      if (under) {
-        const jolt = under.animate(
+      for (const it of under ? [under, el] : []) {
+        const jolt = it.animate(
           [
             { translate: "0 0" },
             { translate: "0 7px" },
@@ -724,6 +731,11 @@ export const CUES = {
   },
 };
 
+// A cue with its `portrait` fields applied while the free area is portrait.
+function oriented(cue, ctx) {
+  return cue.portrait && ctx.portrait() ? { ...cue, ...cue.portrait } : cue;
+}
+
 // Puts a stamp cue's stamp on the desk (an actor, so the next scene clears it).
 function stampOn({ id, at, text }, ctx) {
   return ctx.add({ id, kind: "stamp", at, props: { text } }).el;
@@ -807,6 +819,8 @@ const copy = (n, file, headline, at) => [
   },
 ];
 
+// Scene 2's note on an upright phone: on the desk above the page, over the role's column.
+const ONCE_NOTE_PORTRAIT = { x: 70, y: -190, w: 300, h: 140 };
 // The role header the camera pushes onto in scene 2 (its title line), and the title itself.
 const ROLE = { actor: "resume", sel: '[data-id="windowsill"] .r-title' };
 const ROLE_TITLE = { actor: "resume", sel: '[data-id="windowsill"] .r-title b' };
@@ -820,11 +834,14 @@ const DUNA_4 = { x: 3400, y: 350, ...CAT, z: 5 };
 const INPUT_A = { actor: "term", sel: ".t-input" };
 const TABLE = { actor: "term", sel: ".t-grid" };
 // Scenes 6 to 9: Duna sits left of the replica; scene 8's card lies further left.
-const DUNA_L = { x: -400, y: 420, ...CAT, z: 5 };
-const DUDU = { x: -730, y: 450, ...CAT, z: 4 };
+const DUNA_L = { x: -400, y: 480, ...CAT, z: 5 };
 const NANGNANG = { x: 800, y: 640, ...CAT, z: 7 };
-const STAMP_AT = { x: 268, y: 902, r: -6, z: 6 };
-const STAMP_AREA = { x: 250, y: 860, w: 566, h: 180 }; // where it lands, tilt included
+const NANGNANG_PORTRAIT = { x: 500, y: 1010, ...CAT, z: 7 }; // under the stamp, below the page
+const STAMP_AT = { x: 214, y: 900, r: -6, z: 6 };
+const STAMP_AREA = { x: 196, y: 850, w: 620, h: 190 }; // where it lands, tilt included
+// Scene 8's celebration: Duna and Dudu hop onto the page under the new role.
+const DUNA_8 = { x: 150, y: 610, ...CAT, z: 5 };
+const DUDU_8 = { x: 0, y: 640, ...CAT, z: 4 };
 const TERM_B = { x: -2040, y: 0, z: 3 };
 
 const bullet = (id) => ({ actor: "resume", sel: `[data-id="${id}"]` });
@@ -838,6 +855,14 @@ const SPREAD = { x: -560, y: -60, w: 2290, h: 1170 }; // both pages, and Duna
 // Pen notes beside the replica (their top left; the rect is about the note's size).
 const UP_NOTE = { x: 836, y: 262, w: 210, h: 80 };
 const REAL_NOTE = { x: -590, y: 160, w: 540, h: 160 };
+// A phone held upright crops a zoom to the start of the lines: its notes go on the desk above
+// the page, in the cropped column.
+const DOG_NOTE = { x: -560, y: 290, w: 380, h: 130 }; // above Duna, level with the bullets
+const DOG_NOTE_PORTRAIT = { x: 70, y: -200, w: 360, h: 130 };
+const REAL_NOTE_PORTRAIT = { x: 30, y: -210, w: 540, h: 160 };
+const UP_NOTE_PORTRAIT = { x: 110, y: -150, w: 240, h: 80 };
+// The least scale of a zoom on the replica's lines (14 px text → 11.5 px on screen).
+const READ = 0.82;
 
 // Terminal lines (terminal.js), as the real commands and skills print them (copied from the
 // repo: the justfile, the two skills, and applications/2026-09-granary-senior-mouser/).
@@ -1038,13 +1063,20 @@ export const SCENES = [
         hold: 1300,
       },
       {
-        // A short push onto one role header, with Duna beside it.
+        // A short push onto one role header and its note, with Duna beside them when the
+        // text stays readable (an upright phone: the title's start, the note above it).
         shot: {
-          target: [ROLE, "duna"],
-          grow: { left: 140, top: 150, right: 40, bottom: 20 },
+          target: ROLE,
+          grow: { left: 480, top: 80, right: 16, bottom: 80 },
+          context: "duna",
+          legible: READ,
+          minScale: READ,
+          anchor: "start",
           portrait: {
-            target: ["duna", { actor: "resume", sel: '[data-id="windowsill"] .r-node' }],
-            grow: { left: 140, top: 150, right: 300, bottom: 20 },
+            target: [ONCE_NOTE_PORTRAIT, ROLE],
+            grow: { left: 16, top: 16, right: 16, bottom: 30 },
+            minScale: READ,
+            anchor: "start",
           },
           duration: 1100,
         },
@@ -1065,6 +1097,7 @@ export const SCENES = [
             at: ROLE,
             side: "left",
             gap: 170,
+            portrait: { at: { x: ONCE_NOTE_PORTRAIT.x, y: ONCE_NOTE_PORTRAIT.y } },
             size: 64,
             rotate: -3,
           },
@@ -1346,11 +1379,20 @@ export const SCENES = [
       {
         // Zoom in on Sunbeam: two bullets don't fit the job.
         shot: {
-          target: [SUNBEAM, bullet("w-dog")],
+          target: [DOG_NOTE, SUNBEAM, bullet("w-dog")],
           grow: { left: 16, right: 16, top: 16, bottom: 16 },
-          context: ["duna", { x: -600, y: 130, w: 560, h: 150 }],
+          context: "duna",
           legible: 1.1,
+          minScale: READ,
+          anchor: "start",
           duration: 1100,
+          // Upright phone: the start of the lines, big enough to read, the note above them.
+          portrait: {
+            target: [DOG_NOTE_PORTRAIT, SUNBEAM, bullet("w-dog")],
+            grow: { left: 16, top: 16, bottom: 16 },
+            minScale: READ,
+            anchor: "start",
+          },
         },
         cues: [
           {
@@ -1366,7 +1408,8 @@ export const SCENES = [
             do: "note",
             id: "dog",
             text: "the dog stays\noff this one 🐶",
-            at: { x: -590, y: 150 },
+            at: { x: DOG_NOTE.x, y: DOG_NOTE.y },
+            portrait: { at: { x: DOG_NOTE_PORTRAIT.x, y: DOG_NOTE_PORTRAIT.y } },
             size: 56,
             rotate: -3,
             on: "resume",
@@ -1380,6 +1423,8 @@ export const SCENES = [
             on: "resume",
             from: { note: "dog" },
             grow: { left: 8, right: -560, top: 4, bottom: 4 },
+            // From the note above: onto the line's first words.
+            portrait: { grow: { left: 8, right: -560, top: -8, bottom: 4 } },
             ink: "desk",
           },
         ],
@@ -1392,6 +1437,8 @@ export const SCENES = [
           grow: { top: 20, right: 640, bottom: 110, left: 30 },
           context: SPREAD,
           legible: 0.35,
+          minScale: READ,
+          anchor: "start",
         },
         cues: [
           { do: "mark", target: head("service"), kind: "strike", after: "camera" },
@@ -1421,10 +1468,11 @@ export const SCENES = [
           grow: { top: 16, bottom: 16, left: 16 },
           context: ["resume", "duna", UP_NOTE],
           legible: 0.6,
-          // A phone held upright can't read the lines anyway: it keeps the note in view.
           portrait: {
-            target: [SUNBEAM, bullet("w-mentor"), UP_NOTE],
-            grow: { top: 140, right: 12, left: 12, bottom: 30 },
+            target: [UP_NOTE_PORTRAIT, SUNBEAM, bullet("w-mentor")],
+            grow: { top: 16, left: 16, bottom: 16 },
+            minScale: READ,
+            anchor: "start",
           },
         },
         cues: [
@@ -1434,6 +1482,7 @@ export const SCENES = [
             id: "up",
             text: "moved up!",
             at: { x: UP_NOTE.x, y: UP_NOTE.y },
+            portrait: { at: { x: UP_NOTE_PORTRAIT.x, y: UP_NOTE_PORTRAIT.y } },
             size: 56,
             rotate: -4,
           },
@@ -1444,6 +1493,7 @@ export const SCENES = [
             on: "world",
             from: { note: "up" },
             grow: 10,
+            portrait: { text: true, grow: { left: 4, right: -600, top: -6, bottom: 0 } },
             ink: "desk",
           },
         ],
@@ -1467,7 +1517,7 @@ export const SCENES = [
           grow: { top: 30, bottom: 30 },
           context: ["resume", REAL_NOTE],
           legible: 0.45,
-          portrait: { target: "resume", grow: { top: 160 } },
+          portrait: { target: ["resume", REAL_NOTE_PORTRAIT], grow: { top: 20 } },
         },
         cues: [
           {
@@ -1492,6 +1542,7 @@ export const SCENES = [
             id: "real",
             text: "the real PDF,\nfrom this commit",
             at: { x: REAL_NOTE.x, y: REAL_NOTE.y },
+            portrait: { at: { x: REAL_NOTE_PORTRAIT.x, y: REAL_NOTE_PORTRAIT.y } },
             size: 64,
             rotate: -3,
           },
@@ -1510,10 +1561,14 @@ export const SCENES = [
         // Nangnang stamps the tag.
         shot: {
           target: [STAMP_AREA, NANGNANG],
-          grow: { top: 20, left: 20 },
+          grow: { top: 20, left: 20, right: 140 }, // and clear of Duna, left of the page
           context: ["resume", NANGNANG],
           legible: 0.45,
-          portrait: { target: STAMP_AREA, grow: { top: 300, bottom: 30, left: 10, right: 60 } },
+          // Upright phone: from the page's left edge to the stamp; Nangnang sits below it.
+          portrait: {
+            target: [{ x: 0, y: STAMP_AREA.y, w: 1, h: 1 }, STAMP_AREA, NANGNANG_PORTRAIT],
+            grow: { left: 12, right: 12, top: 30, bottom: 10 },
+          },
         },
         cues: [
           {
@@ -1522,6 +1577,7 @@ export const SCENES = [
             kind: "paws",
             at: { z: 0 },
             props: { from: { x: 1500, y: 1110 }, to: { x: 1000, y: 1080 } },
+            portrait: { props: { from: { x: 1300, y: 1440 }, to: { x: 820, y: 1400 } } },
             wait: false,
           },
           {
@@ -1529,6 +1585,7 @@ export const SCENES = [
             id: "nangnang",
             kind: "cat",
             at: NANGNANG,
+            portrait: { at: NANGNANG_PORTRAIT },
             from: { dx: 420, dy: -30, o: 0 },
             props: { name: "nangnang" },
           },
@@ -1661,11 +1718,20 @@ export const SCENES = [
         hold: 1200,
       },
       {
-        // She got the job: the terminal's work is done; Dudu cheers.
+        // She got the job: the terminal's work is done. Duna hops onto the page under her new
+        // role, Dudu joins her and cheers. (A desk wide enough frames the role with them; an
+        // upright phone crops to the role's title and the two cats under it.)
         shot: {
-          target: [NEW_ROLE, DUNA_L, DUDU],
-          grow: { top: 60, right: 20 },
-          portrait: { target: [DUNA_L, DUDU, NEW_ROLE_NODE], grow: { top: 80, right: 120 } },
+          target: [DUDU_8, DUNA_8],
+          grow: { top: 30, bottom: 10 },
+          context: NEW_ROLE,
+          legible: 0.75,
+          portrait: {
+            target: [NEW_ROLE_TITLE, DUDU_8, DUNA_8],
+            grow: { top: 30, bottom: 10, left: 10 },
+            minScale: READ,
+            anchor: "start",
+          },
         },
         cues: [
           { do: "exit", id: "term", to: { dy: 80, o: 0 }, wait: false },
@@ -1673,13 +1739,15 @@ export const SCENES = [
             do: "enter",
             id: "dudu",
             kind: "cat",
-            at: DUDU,
+            at: DUDU_8,
             from: { dx: -360, dy: -20, o: 0 },
             props: { name: "dudu" },
             wait: false,
+            delay: 300,
           },
-          { do: "confetti", at: { x: -760, y: -120, w: 1560, h: 900 }, wait: false, delay: 300 },
-          { do: "pose", id: "duna", pose: "jump", wait: false, delay: 200 },
+          { do: "move", id: "duna", at: { x: DUNA_8.x, y: DUNA_8.y }, walk: true },
+          { do: "confetti", at: { x: -200, y: 140, w: 1100, h: 900 }, wait: false },
+          { do: "pose", id: "duna", pose: "jump", wait: false, delay: 100 },
           { do: "pose", id: "dudu", pose: "wave", wait: false, delay: 600 },
         ],
         hold: 2400,
