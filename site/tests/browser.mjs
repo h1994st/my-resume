@@ -92,6 +92,11 @@ function launchChrome() {
       "--hide-scrollbars",
       // CI runners (containers, restricted user namespaces) can't use Chrome's sandbox.
       ...(process.env.CI ? ["--no-sandbox"] : []),
+      // A desktop page has a mouse, (hover: hover) and (pointer: fine), on any host: headless
+      // Chrome on a Linux runner has no pointing device and reports none. (CDP's
+      // setEmulatedMedia ignores hover and pointer.) A phone page's touch emulation still gives
+      // (hover: none) and (pointer: coarse).
+      "--blink-settings=primaryHoverType=2,availableHoverTypes=2,primaryPointerType=4,availablePointerTypes=4",
       "about:blank",
     ],
     { stdio: ["ignore", "ignore", "pipe"] },
@@ -740,10 +745,16 @@ test("film: a chapter's tooltip shows on hover and keyboard focus, not after a t
     getComputedStyle(document.querySelector('.fc-seg[data-scene="5"] .fc-tip')).opacity;
   const shown = () =>
     getComputedStyle(document.querySelector('.fc-seg[data-scene="5"] .fc-tip')).opacity === "1";
+  const can = (page) =>
+    page.eval(() => ({
+      hover: matchMedia("(hover: hover)").matches,
+      fine: matchMedia("(pointer: fine)").matches,
+    }));
   // A phone: a tap leaves :hover on the segment, and the tooltip would stay over the caption.
   const phone = await newPage({ width: 390, height: 844, mobile: true, deviceScaleFactor: 2 });
   await phone.goto("/");
   await pausedFilm(phone);
+  assert.deepEqual(await can(phone), { hover: false, fine: false }, "a phone: touch only");
   const at = await phone.eval(() => {
     const r = document.querySelector('.fc-seg[data-scene="5"]').getBoundingClientRect();
     return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
@@ -757,6 +768,7 @@ test("film: a chapter's tooltip shows on hover and keyboard focus, not after a t
   const desk = await newPage();
   await desk.goto("/");
   await pausedFilm(desk);
+  assert.deepEqual(await can(desk), { hover: true, fine: true }, "a desktop: a mouse");
   const r = await desk.eval(() =>
     document.querySelector('.fc-seg[data-scene="5"]').getBoundingClientRect().toJSON(),
   );
