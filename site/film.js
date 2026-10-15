@@ -80,9 +80,9 @@
 //
 // The film autoplays the first time it fills half the viewport (or half of itself). Playback
 // pauses while the film is out of view by that rule or the tab is hidden, and goes on when both
-// are back, unless the viewer paused or jumped meanwhile. Keys: Space (play/pause), ←/→
-// (scenes), 1–9 (scene N), only while the film is in view and focus is on the page body or
-// inside the film. Touch or pen swipes step,
+// are back, unless the viewer paused or jumped meanwhile. Keys: Space (play/pause; on a chapter
+// or prev/next too, which a click leaves focused), ←/→ (scenes), 1–9 (scene N), only while the
+// film is in view and focus is on the page body or inside the film. Touch or pen swipes step,
 // except from the controls or from [data-no-swipe]. The controls (play/pause, prev/next, one
 // chapter segment per scene, a "replay" label) fade after 2.5 s without pointer movement while
 // playing, and come back on pointer movement, touch, keys, or focus; they stay while paused,
@@ -733,8 +733,10 @@ export function createFilm({ scenes, cues, actors, root, onEvent = () => {} }) {
     if (active && active !== document.body && !root.contains(active)) return;
     let action = null;
     if (e.key === " " && !e.shiftKey) {
-      // A focused button already activates on Space.
-      if (active?.closest?.("button, a, input, select, textarea")) return;
+      // A focused button activates on Space, except a chapter and prev/next: a click leaves
+      // focus there, and Space should still play and pause (Enter still activates them).
+      const control = active?.closest?.("button, a, input, select, textarea");
+      if (control && !control.matches('.fc-seg, [data-ctl="prev"], [data-ctl="next"]')) return;
       action = toggle;
     } else if (e.key === "ArrowRight") action = next;
     else if (e.key === "ArrowLeft") action = prev;

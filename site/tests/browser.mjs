@@ -1456,6 +1456,53 @@ test("film: playback pauses out of view or in a hidden tab, and resumes when bac
   assert.equal((await state()).playing, false, "a paused film stays paused");
 });
 
+test("film: Space plays and pauses after a click on a chapter, prev, or next", async ({
+  newPage,
+}) => {
+  const page = await newPage();
+  await page.goto("/");
+  await pausedFilm(page);
+  await page.eval(() => {
+    window.__demo.events.length = 0;
+  });
+  const state = () =>
+    page.eval(() => ({
+      scene: window.__demo.film.scene,
+      playing: window.__demo.film.playing,
+      focus: document.activeElement.dataset.scene ?? document.activeElement.dataset.ctl ?? null,
+    }));
+  await page.click('.fc-seg[data-scene="3"]');
+  assert.deepEqual(await state(), { scene: 2, playing: false, focus: "3" }, "chapter 3");
+  await page.key(" ");
+  assert.deepEqual(await state(), { scene: 2, playing: true, focus: "3" }, "Space plays");
+  await page.key(" ");
+  assert.deepEqual(await state(), { scene: 2, playing: false, focus: "3" }, "Space pauses");
+  await page.click('[data-ctl="next"]');
+  await page.key(" ");
+  assert.deepEqual(await state(), { scene: 3, playing: true, focus: "next" }, "after next");
+  await page.click('[data-ctl="prev"]');
+  await page.key(" ");
+  assert.deepEqual(await state(), { scene: 2, playing: true, focus: "prev" }, "after prev");
+  // The play button is a button: Space clicks it (one "play", no "key" too).
+  await page.click('[data-ctl="play"]');
+  await page.key(" ");
+  assert.deepEqual(await state(), { scene: 2, playing: true, focus: "play" }, "play button");
+  const methods = await page.eval(() =>
+    window.__demo.events.filter((e) => e.name === "interact").map((e) => e.params.method),
+  );
+  assert.deepEqual(methods, [
+    "chapter",
+    "key",
+    "key",
+    "step",
+    "key",
+    "step",
+    "key",
+    "play",
+    "play",
+  ]);
+});
+
 test("film: controls, swipes, and events", async ({ newPage }) => {
   const page = await newPage({ width: 390, height: 844, mobile: true, deviceScaleFactor: 2 });
   await page.goto("/");
