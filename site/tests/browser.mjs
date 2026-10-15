@@ -1102,7 +1102,10 @@ const themeState = (page) =>
       attr: document.documentElement.dataset.theme ?? null,
       bg: getComputedStyle(document.body).backgroundColor,
       pressed: button?.getAttribute("aria-pressed") ?? null,
-      label: button?.textContent.trim() ?? null,
+      // The accessible name: constant; aria-pressed carries the state.
+      name: button
+        ? (button.getAttribute("aria-label") ?? button.textContent).replace(/\s+/g, " ").trim()
+        : null,
     };
   });
 // localStorage outlives a test (one browser profile for the run), so theme tests clean up.
@@ -1123,7 +1126,7 @@ test("theme: follows the system setting while nothing is stored", async ({ newPa
       attr: null,
       bg: DESK.dark,
       pressed: "true",
-      label: "Dark",
+      name: "Dark theme",
     });
     await page.eval(() => window.__demo.player.pause());
     await page.screenshot(`theme-dark-${width}x${height}`);
@@ -1135,7 +1138,7 @@ test("theme: follows the system setting while nothing is stored", async ({ newPa
       attr: null,
       bg: DESK.light,
       pressed: "false",
-      label: "Light",
+      name: "Dark theme",
     });
     await page.screenshot(`theme-light-${width}x${height}`);
     // The toggle sits in the one-line header, on screen, with a 44px target.
@@ -1168,7 +1171,7 @@ test("theme: the toggle sets data-theme and keeps it across a reload", async ({ 
   try {
     await page.goto("/");
     await toggleTheme(page);
-    const dark = { stored: "dark", attr: "dark", bg: DESK.dark, pressed: "true", label: "Dark" };
+    const dark = { stored: "dark", attr: "dark", bg: DESK.dark, pressed: "true", name: "Dark theme" };
     assert.deepEqual(await themeState(page), dark);
     assert.deepEqual(
       await page.eval(() => window.__demo.events.filter((e) => e.name === "theme")),
@@ -1190,7 +1193,7 @@ test("theme: the toggle sets data-theme and keeps it across a reload", async ({ 
       attr: "light",
       bg: DESK.light,
       pressed: "false",
-      label: "Light",
+      name: "Dark theme",
     });
   } finally {
     await forgetTheme(page);

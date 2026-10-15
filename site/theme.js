@@ -4,9 +4,9 @@
 // data-theme stays unset and the system setting wins. The inline script in index.html's <head>
 // applies a stored choice before the first paint; this module wires the toggle.
 //
-// initTheme({ onChange }) → { theme() } wires #theme-toggle: a button with aria-pressed (true while
-// the dark theme shows) whose label names the theme on screen ("Dark" or "Light"). onChange(theme)
-// runs when the user switches, not when the system setting changes.
+// initTheme({ onChange }) → { theme() } wires #theme-toggle: a button named "Dark theme" whose
+// aria-pressed is true while the dark theme shows (the name stays the same; the state is in
+// aria-pressed). onChange(theme) runs when the user switches, not when the system setting changes.
 
 const KEY = "theme";
 const systemDark = matchMedia("(prefers-color-scheme: dark)");
@@ -46,8 +46,6 @@ export function initTheme({ onChange } = {}) {
   const render = () => {
     const theme = currentTheme();
     button?.setAttribute("aria-pressed", String(theme === "dark"));
-    if (button)
-      button.querySelector(".theme-label").textContent = theme === "dark" ? "Dark" : "Light";
     // The browser's own UI follows the desk.
     const desk = getComputedStyle(root).getPropertyValue("--desk").trim();
     for (const meta of document.querySelectorAll('meta[name="theme-color"]')) meta.content = desk;

@@ -514,8 +514,30 @@ a:hover {
   font: 600 14px/1 var(--ui);
   cursor: pointer;
 }
+.theme-toggle svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+}
 .theme-toggle:hover {
   background: var(--tint);
+}
+.theme-toggle[aria-pressed="true"] {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--desk);
+}
+.theme-toggle[aria-pressed="true"] svg {
+  fill: currentColor;
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 .theme-toggle::after {
   content: "";
