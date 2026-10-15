@@ -7,8 +7,8 @@
 // page at a time at the column's full width, with a page switch when there are two; the terminal
 // below gets what is left of the screen (style.css, from --page-h). Short landscape (a phone on its
 // side): terminal | one page at a time at its column's width (at most full size), scrolling inside
-// the column. A page-count change zooms
-// (CSS transitions on --s and --sw); a resize or an instant state change doesn't.
+// the column. A page-count change zooms (CSS transitions on --s and --sw); a resize or an instant
+// state change doesn't.
 
 import { ACTS } from "./acts.js";
 import { createPlayer } from "./player.js";
