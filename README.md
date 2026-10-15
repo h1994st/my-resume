@@ -10,6 +10,8 @@ can't drift, and a template that is tested like code.
 ![XeLaTeX](https://img.shields.io/badge/built%20with-XeLaTeX-374151.svg)
 ![Claude Code ready](https://img.shields.io/badge/Claude%20Code-ready-D97757.svg)
 
+**[Live demo](https://shengtuo.me/my-resume/)**
+
 ![Sample resume pages: a tailored variant, the canonical first page, and its second page](docs/images/hero.png)
 
 </div>
