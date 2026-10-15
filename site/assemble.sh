@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Assembles the static site into <out>: the site files, the template's fonts (with their OFL
-# licenses), the two built PDFs, and PNGs of their pages.
+# Assembles the static site into <out>: the site files, the site's own fonts (Caveat) and the
+# template's fonts (all with their OFL licenses), the two built PDFs, and PNGs of their pages.
 # Usage: site/assemble.sh <out> [pdf-root]  (pdf-root holds canonical/resume.pdf and
 # applications/2026-09-granary-senior-mouser/resume.pdf; default: the current directory)
 set -euo pipefail
@@ -15,11 +15,12 @@ mkdir -p "$out/fonts/SourceSans3" "$out/fonts/SourceSerif4" "$out/pdf" "$out/img
 # Site files, without tests and the build-time scripts.
 for f in "$here"/*; do
   case $(basename "$f") in
-    tests | *.sh | strings.mjs) continue ;;
+    tests | fonts | *.sh | strings.mjs) continue ;;
   esac
   cp -R "$f" "$out/"
 done
 
+cp -R "$here/fonts/." "$out/fonts/"
 for family in SourceSans3 SourceSerif4; do
   cp "$repo/fonts/$family"/*.otf "$repo/fonts/$family/LICENSE.md" "$out/fonts/$family/"
 done

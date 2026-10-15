@@ -14,6 +14,7 @@ import { ACTS } from "./acts.js";
 import { createPlayer } from "./player.js";
 import { createResume } from "./resume.js";
 import { createTerminal } from "./terminal.js";
+import { initTheme } from "./theme.js";
 
 const PAGE_W = 816;
 const PAGE_GAP = 48; // between pages in the spread (resume.js)
@@ -128,6 +129,7 @@ stacked.addEventListener("change", () => fit());
 short.addEventListener("change", () => fit());
 
 const events = [];
+initTheme({ onChange: (theme) => events.push({ name: "theme", params: { theme } }) });
 
 // analytics.js, loaded after the stage's first paint; events before it wait in `early`.
 let analytics;
@@ -179,5 +181,8 @@ const player = createPlayer({
 fit();
 
 window.__demo = { player, resume, events };
+
+// index.html?kit: the cast and pen kit instead of the page (kit.js).
+if (new URLSearchParams(location.search).has("kit")) import("./kit.js").then((m) => m.renderKit());
 
 requestAnimationFrame(() => requestAnimationFrame(loadAnalytics));

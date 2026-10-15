@@ -8,7 +8,8 @@
       name="description"
       content="A LaTeX resume template you can git diff: facts defined once and cited by key, a canonical resume with tailored variants per job, and Claude Code skills for the workflow."
     />
-    <meta name="theme-color" content="#ffffff" />
+    <meta name="theme-color" content="#eef0f3" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#1b1f25" media="(prefers-color-scheme: dark)" />
     <meta property="og:type" content="website" />
     <meta property="og:title" content="my-resume" />
     <meta
@@ -21,6 +22,13 @@
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 0v32' stroke='%23c3c6cb' stroke-width='4'/%3E%3Ccircle cx='16' cy='16' r='9' fill='%23fff' stroke='%23374151' stroke-width='5'/%3E%3C/svg%3E"
     />
+    <script>
+      // A theme the user picked (theme.js), applied before the first paint.
+      try {
+        const theme = localStorage.getItem("theme");
+        if (theme === "light" || theme === "dark") document.documentElement.dataset.theme = theme;
+      } catch {}
+    </script>
     <link rel="stylesheet" href="style.css" />
     <script type="module" src="main.js"></script>
   </head>
@@ -29,6 +37,13 @@
       <h1>my-resume</h1>
       <p>A LaTeX resume you can <code>git diff</code>, tailored per job with Claude Code.</p>
       <a href="https://github.com/h1994st/my-resume">GitHub</a>
+      <button type="button" class="theme-toggle" id="theme-toggle" aria-pressed="false">
+        <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" focusable="false">
+          <circle cx="10" cy="10" r="7.5" fill="none" stroke="currentColor" stroke-width="1.6" />
+          <path d="M10 2.5a7.5 7.5 0 0 1 0 15z" fill="currentColor" />
+        </svg>
+        <span class="theme-label">Light</span>
+      </button>
     </header>
 
     <section class="stage" id="stage" aria-label="Workflow demo (a scripted replay)">

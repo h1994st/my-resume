@@ -47,6 +47,8 @@ const TYPES = {
   ".otf": "font/otf",
   ".pdf": "application/pdf",
   ".md": "text/markdown; charset=utf-8",
+  ".woff2": "font/woff2",
+  ".txt": "text/plain; charset=utf-8",
 };
 
 function serve(root) {
@@ -1068,6 +1070,487 @@ test("a swipe on the control bar does not step the demo", async ({ newPage }) =>
   assert.equal(await page.eval(() => window.__demo.player.step), before + 1, "terminal swipe");
 });
 
+// --- Tests: themes, cast, and pen kit --------------------------------------------------------
+
+const scheme = (value) => [{ name: "prefers-color-scheme", value }];
+// The desk colour (spec) as computed style reports it.
+const DESK = { light: "rgb(238, 240, 243)", dark: "rgb(27, 31, 37)" };
+const PEN = {
+  paper: "rgb(194, 65, 12)",
+  desk: { light: "rgb(194, 65, 12)", dark: "rgb(251, 146, 60)" },
+};
+const CAST = {
+  duna: { coat: "#9aa3ad", stripe: "#59626d", light: "#eceff2", iris: "#e3a72f", nose: "#e48b8b" },
+  dudu: { coat: "#8c939c", stripe: "#8c939c", light: "#b9bfc6", iris: "#8fc27a", nose: "#c98a8f" },
+  nangnang: {
+    coat: "#b48c5f",
+    stripe: "#5a4230",
+    light: "#f2e7d7",
+    iris: "#b9c25a",
+    nose: "#d98579",
+  },
+};
+const POSES = ["sit", "wave", "jump", "tap", "blink"];
+const MARKS = ["circle", "underline", "strike", "arrow"];
+
+// The theme as the page shows it: the stored choice, data-theme, the desk, and the toggle.
+const themeState = (page) =>
+  page.eval(() => {
+    const button = document.getElementById("theme-toggle");
+    return {
+      stored: localStorage.getItem("theme"),
+      attr: document.documentElement.dataset.theme ?? null,
+      bg: getComputedStyle(document.body).backgroundColor,
+      pressed: button?.getAttribute("aria-pressed") ?? null,
+      label: button?.textContent.trim() ?? null,
+    };
+  });
+// localStorage outlives a test (one browser profile for the run), so theme tests clean up.
+const forgetTheme = (page) => page.eval(() => localStorage.removeItem("theme"));
+const toggleTheme = (page) => page.eval(() => document.getElementById("theme-toggle").click());
+
+test("theme: follows the system setting while nothing is stored", async ({ newPage }) => {
+  for (const [width, height] of [
+    [1280, 720],
+    [390, 844],
+  ]) {
+    const page = await newPage({ width, height, mobile: width < 800, media: scheme("dark") });
+    await page.goto("/");
+    await forgetTheme(page);
+    await page.goto("/");
+    assert.deepEqual(await themeState(page), {
+      stored: null,
+      attr: null,
+      bg: DESK.dark,
+      pressed: "true",
+      label: "Dark",
+    });
+    await page.eval(() => window.__demo.player.pause());
+    await page.screenshot(`theme-dark-${width}x${height}`);
+    await page.screenshotOf("#template", `theme-dark-template-${width}x${height}`);
+    await page.media(scheme("light"));
+    await page.frames(2);
+    assert.deepEqual(await themeState(page), {
+      stored: null,
+      attr: null,
+      bg: DESK.light,
+      pressed: "false",
+      label: "Light",
+    });
+    await page.screenshot(`theme-light-${width}x${height}`);
+    // The toggle sits in the one-line header, on screen, with a 44px target.
+    const m = await page.eval(() => {
+      const b = document.getElementById("theme-toggle").getBoundingClientRect();
+      const h = document.querySelector(".site-title").getBoundingClientRect();
+      const hit = (x, y) => document.elementFromPoint(x, y)?.closest("#theme-toggle") !== null;
+      const cx = b.left + b.width / 2;
+      const cy = b.top + b.height / 2;
+      return {
+        vw: innerWidth,
+        scrollWidth: document.documentElement.scrollWidth,
+        b: b.toJSON(),
+        header: h.height,
+        target: hit(cx, cy - 21) && hit(cx, cy + 21) && hit(cx - 21, cy) && hit(cx + 21, cy),
+      };
+    });
+    assert.ok(m.b.left >= 0 && m.b.right <= m.vw, `${width}: toggle off screen`);
+    assert.equal(m.header, 48, `${width}: header height`);
+    assert.ok(m.target, `${width}: toggle target under 44px`);
+    assert.ok(m.scrollWidth <= m.vw, `${width}: horizontal scroll`);
+    await page.close();
+  }
+});
+
+test("theme: the toggle sets data-theme and keeps it across a reload", async ({ newPage }) => {
+  const page = await newPage({ media: scheme("light") });
+  await page.goto("/");
+  await forgetTheme(page);
+  try {
+    await page.goto("/");
+    await toggleTheme(page);
+    const dark = { stored: "dark", attr: "dark", bg: DESK.dark, pressed: "true", label: "Dark" };
+    assert.deepEqual(await themeState(page), dark);
+    assert.deepEqual(
+      await page.eval(() => window.__demo.events.filter((e) => e.name === "theme")),
+      [{ name: "theme", params: { theme: "dark" } }],
+      "onChange reports the choice",
+    );
+    await page.goto("/");
+    assert.deepEqual(await themeState(page), dark, "after a reload");
+    // A stored choice wins over the system setting.
+    await page.media(scheme("dark"));
+    await page.media(scheme("light"));
+    await page.frames(2);
+    assert.deepEqual(await themeState(page), dark, "after a system change");
+    await toggleTheme(page);
+    await page.media(scheme("dark"));
+    await page.goto("/");
+    assert.deepEqual(await themeState(page), {
+      stored: "light",
+      attr: "light",
+      bg: DESK.light,
+      pressed: "false",
+      label: "Light",
+    });
+  } finally {
+    await forgetTheme(page);
+  }
+});
+
+test("theme: a stored theme applies before the first paint", async ({ newPage }) => {
+  for (const [system, stored] of [
+    ["light", "dark"],
+    ["dark", "light"],
+  ]) {
+    const page = await newPage({ media: scheme(system) });
+    await page.goto("/");
+    await page.eval((t) => localStorage.setItem("theme", t), stored);
+    try {
+      // Records data-theme changes and the desk colour at the first frame and at load.
+      await page.send("Page.addScriptToEvaluateOnNewDocument", {
+        source: `
+          window.__paint = [];
+          const note = (when) => window.__paint.push({
+            when,
+            theme: document.documentElement.dataset.theme ?? null,
+            body: Boolean(document.body),
+            desk: getComputedStyle(document.documentElement).getPropertyValue("--desk").trim(),
+          });
+          // Observed from the document: the <html> element doesn't exist yet.
+          new MutationObserver(() => note("attr")).observe(document, {
+            attributes: true,
+            attributeFilter: ["data-theme"],
+            subtree: true,
+          });
+          requestAnimationFrame(() => note("frame"));
+          addEventListener("load", () => note("load"));
+        `,
+      });
+      await page.goto("/");
+      const paint = await page.eval(() => window.__paint);
+      const desk = stored === "dark" ? "#1b1f25" : "#eef0f3";
+      const attr = paint.filter((p) => p.when === "attr");
+      assert.equal(attr.length, 1, `one data-theme change: ${JSON.stringify(paint)}`);
+      assert.equal(attr[0].theme, stored);
+      assert.equal(attr[0].body, false, "set while the head is parsed");
+      const frame = paint.find((p) => p.when === "frame");
+      assert.deepEqual([frame.theme, frame.desk], [stored, desk], "first frame");
+      const load = paint.find((p) => p.when === "load");
+      assert.deepEqual([load.theme, load.desk], [stored, desk], "at load");
+    } finally {
+      await forgetTheme(page);
+      await page.close();
+    }
+  }
+});
+
+test("assembled site: the Caveat fonts and their license", async () => {
+  const dir = path.join(SITE, "fonts/caveat");
+  for (const file of ["caveat-latin-400-normal.woff2", "caveat-latin-600-normal.woff2"]) {
+    assert.ok(existsSync(path.join(dir, file)), `${file} in the site`);
+  }
+  const ofl = path.join(dir, "OFL.txt");
+  assert.ok(existsSync(ofl), "fonts/caveat/OFL.txt in the site");
+  assert.match(readFileSync(ofl, "utf8"), /SIL OPEN FONT LICENSE Version 1\.1/);
+});
+
+// Everything the kit page draws, measured.
+const kitState = (page) =>
+  page.eval(() => {
+    const css = (el, name) => getComputedStyle(el).getPropertyValue(name).trim();
+    const box = (els) => {
+      const rs = [...els].map((e) => e.getBoundingClientRect());
+      return {
+        left: Math.min(...rs.map((r) => r.left)),
+        top: Math.min(...rs.map((r) => r.top)),
+        right: Math.max(...rs.map((r) => r.right)),
+        bottom: Math.max(...rs.map((r) => r.bottom)),
+      };
+    };
+    const marks = {};
+    for (const el of document.querySelectorAll(".kit .pen-mark")) {
+      const target = document.querySelector(`.kit [data-kit-target="${el.dataset.kind}"]`);
+      marks[el.dataset.kind] = {
+        mark: box(el.querySelectorAll("path")),
+        target: target && box([target]),
+        drawn: [...el.querySelectorAll("path")].every(
+          (p) => parseFloat(getComputedStyle(p).strokeDashoffset) === 0,
+        ),
+        color: getComputedStyle(el).color,
+      };
+    }
+    return {
+      symbols: document.querySelectorAll("symbol#cat").length,
+      cats: [...document.querySelectorAll(".kit .cat")].map((c) => ({
+        name: c.dataset.cat,
+        pose: c.dataset.pose,
+        api: typeof c.pose === "function" && typeof c.idle === "function",
+        colors: Object.fromEntries(
+          ["coat", "stripe", "light", "iris", "nose"].map((k) => [k, css(c, `--${k}`)]),
+        ),
+        edge: css(c, "--cat-edge"),
+        size: c.getBoundingClientRect().width,
+      })),
+      marks,
+      notes: [...document.querySelectorAll(".kit .pen-note")].map((n) => ({
+        ink: n.dataset.ink,
+        color: getComputedStyle(n).color,
+        font: getComputedStyle(n).fontFamily,
+        emoji: [...n.querySelectorAll("[aria-hidden='true']")].map((e) => e.textContent),
+        text: n.textContent,
+      })),
+      caveat: document.fonts.check("400 24px Caveat") && document.fonts.check("600 24px Caveat"),
+      vw: innerWidth,
+      scrollWidth: document.documentElement.scrollWidth,
+    };
+  });
+
+test("kit: the three cats in every pose and every pen mark, in both themes", async ({
+  newPage,
+}) => {
+  for (const theme of ["light", "dark"]) {
+    // Reduced motion: poses hold still, so the screenshots are stable.
+    const page = await newPage({ width: 1280, height: 900, media: [...scheme(theme), ...REDUCED] });
+    await page.goto("/?kit", { waitForDemo: false });
+    await page.waitFor(() => window.__kit?.ready);
+    await page.eval(() => document.fonts.ready.then(() => true));
+    const k = await kitState(page);
+    assert.equal(k.symbols, 1, "one cat symbol");
+    for (const name of Object.keys(CAST)) {
+      const cats = k.cats.filter((c) => c.name === name);
+      assert.deepEqual(
+        cats.map((c) => c.pose),
+        POSES,
+        `${name}: every pose`,
+      );
+      for (const c of cats) {
+        assert.ok(c.api, `${name}: pose() and idle()`);
+        assert.deepEqual(c.colors, CAST[name], `${name}: colours`);
+        assert.ok(c.size > 60, `${name}: drawn`);
+      }
+    }
+    const edge = k.cats[0].edge;
+    if (theme === "dark") assert.notEqual(edge, "transparent", "a faint outline in dark");
+    else assert.equal(edge, "transparent", "no outline in light");
+    assert.deepEqual(Object.keys(k.marks).sort(), [...MARKS].sort(), "every mark kind");
+    for (const kind of MARKS) {
+      const { mark: m, target: t, drawn } = k.marks[kind];
+      assert.ok(t, `${kind}: a target`);
+      assert.ok(drawn, `${kind}: drawn (instant)`);
+      const w = t.right - t.left;
+      const h = t.bottom - t.top;
+      const label = `${kind} ${JSON.stringify(m)} vs ${JSON.stringify(t)}`;
+      if (kind === "circle") {
+        assert.ok(
+          m.left <= t.left + 2 &&
+            m.right >= t.right - 2 &&
+            m.top <= t.top + 2 &&
+            m.bottom >= t.bottom - 2,
+          `${label}: rings the target`,
+        );
+      } else if (kind === "underline" || kind === "strike") {
+        assert.ok(m.left <= t.left + 0.1 * w && m.right >= t.right - 0.1 * w, `${label}: spans it`);
+        const mid = (m.top + m.bottom) / 2;
+        if (kind === "underline") assert.ok(mid >= t.bottom - 0.25 * h, `${label}: below`);
+        else assert.ok(mid > t.top + 0.25 * h && mid < t.bottom - 0.25 * h, `${label}: through`);
+      } else {
+        const gap = Math.max(
+          t.left - m.right,
+          m.left - t.right,
+          t.top - m.bottom,
+          m.top - t.bottom,
+        );
+        assert.ok(gap <= 24, `${label}: points at the target`);
+        assert.ok(
+          !(m.left >= t.left && m.right <= t.right && m.top >= t.top && m.bottom <= t.bottom),
+          `${label}: from outside`,
+        );
+      }
+      assert.equal(k.marks[kind].color, PEN.paper, `${kind}: paper pen colour`);
+    }
+    const desk = k.notes.filter((n) => n.ink === "desk");
+    const paper = k.notes.filter((n) => n.ink === "paper");
+    assert.ok(desk.length >= 1 && paper.length >= 1, "notes on the desk and on paper");
+    for (const n of desk) assert.equal(n.color, PEN.desk[theme], `desk note colour in ${theme}`);
+    for (const n of paper) assert.equal(n.color, PEN.paper, "paper note colour");
+    for (const n of k.notes) assert.match(n.font, /^"?Caveat"?/, "notes in Caveat");
+    assert.ok(k.caveat, "Caveat 400 and 600 loaded");
+    assert.ok(
+      k.notes.some((n) => n.emoji.includes("🙀")),
+      "emoji in notes are aria-hidden",
+    );
+    assert.ok(k.scrollWidth <= k.vw, "no horizontal scroll");
+    await page.screenshotOf(".kit", `kit-${theme}`);
+    await page.close();
+  }
+});
+
+test("kit: idle motion and pose loops, and none with reduced motion", async ({ newPage }) => {
+  for (const reduced of [false, true]) {
+    const page = await newPage({ media: reduced ? REDUCED : [] });
+    await page.goto("/?kit", { waitForDemo: false });
+    await page.waitFor(() => window.__kit?.ready);
+    const got = await page.eval(async () => {
+      const { createCat } = await import("./cast.js");
+      const cat = createCat("duna", { pose: "wave" });
+      cat.id = "test-cat";
+      document.querySelector(".kit").prepend(cat);
+      const state = () => ({
+        pose: cat.dataset.pose,
+        idle: getComputedStyle(cat).getPropertyValue("--cat-wag").trim() !== "none",
+        moving: cat.getAnimations({ subtree: true }).length > 0,
+      });
+      const out = { wave: state() };
+      cat.idle(false);
+      out.still = state();
+      cat.idle(true);
+      await cat.pose("sit");
+      out.sit = state();
+      let threw = false;
+      try {
+        createCat("rex");
+      } catch {
+        threw = true;
+      }
+      out.threw = threw;
+      return out;
+    });
+    assert.deepEqual(got, {
+      wave: { pose: "wave", idle: !reduced, moving: !reduced },
+      still: { pose: "wave", idle: false, moving: !reduced },
+      sit: { pose: "sit", idle: !reduced, moving: false },
+      threw: true,
+    });
+    // Idle life runs inside the <use> tree, out of reach of getAnimations(): compare pixels.
+    const frame = async () => {
+      const clip = await page.eval(() => {
+        const r = document.getElementById("test-cat").getBoundingClientRect();
+        return { x: r.left, y: r.top, width: r.width, height: r.height };
+      });
+      const { data } = await page.send("Page.captureScreenshot", {
+        format: "png",
+        clip: { ...clip, scale: 1 },
+      });
+      return data;
+    };
+    // Pixels that differ clearly between two frames (PNG bytes alone vary with rasterization).
+    const changes = async () => {
+      const a = await frame();
+      await sleep(700);
+      const b = await frame();
+      const moved = await page.eval(
+        async (x, y) => {
+          const pixels = async (data) => {
+            const img = new Image();
+            img.src = `data:image/png;base64,${data}`;
+            await img.decode();
+            const c = new OffscreenCanvas(img.width, img.height);
+            const ctx = c.getContext("2d");
+            ctx.drawImage(img, 0, 0);
+            return ctx.getImageData(0, 0, img.width, img.height).data;
+          };
+          const [p, q] = await Promise.all([pixels(x), pixels(y)]);
+          let n = 0;
+          for (let i = 0; i < p.length; i += 4) {
+            if (Math.max(...[0, 1, 2].map((k) => Math.abs(p[i + k] - q[i + k]))) > 24) n++;
+          }
+          return n;
+        },
+        a,
+        b,
+      );
+      return moved > 40;
+    };
+    await page.eval(() => document.getElementById("test-cat").pose("sit"));
+    await page.frames(3);
+    assert.equal(await changes(), !reduced, `idle on, reduced motion ${reduced}`);
+    await page.eval(() => document.getElementById("test-cat").idle(false));
+    await page.frames(3);
+    assert.equal(await changes(), false, `idle off, reduced motion ${reduced}`);
+    await page.close();
+  }
+});
+
+test("pen: marks and notes draw on, resolve when drawn, and stop on abort", async ({ newPage }) => {
+  for (const reduced of [false, true]) {
+    const page = await newPage({ media: reduced ? REDUCED : [] });
+    await page.goto("/?kit", { waitForDemo: false });
+    await page.waitFor(() => window.__kit?.ready);
+    const got = await page.eval(async () => {
+      const pen = await import("./pen.js");
+      const layer = document.querySelector(".kit-paper");
+      const target = layer.querySelector('[data-kit-target="circle"]');
+      const offsets = (svg) =>
+        [...svg.querySelectorAll("path")].map((p) =>
+          parseFloat(getComputedStyle(p).strokeDashoffset),
+        );
+      const count = () => layer.querySelectorAll(".pen-mark, .pen-note").length;
+      const before = count();
+      let t = performance.now();
+      const pending = pen.mark(target, "circle");
+      await new Promise(requestAnimationFrame);
+      const svg = await pending;
+      const markMs = performance.now() - t;
+      const drawn = offsets(svg).every((o) => o === 0);
+      t = performance.now();
+      const note = await pen.note("moved up!", { x: 20, y: 20 }, { layer });
+      const noteMs = performance.now() - t;
+      const instant = pen.markInstant({ x: 10, y: 10, w: 80, h: 20 }, "strike", { layer });
+      const instantDrawn = offsets(instant).every((o) => o === 0);
+      const instantNote = pen.noteInstant("hi 👋", { x: 10, y: 40 }, { layer });
+      const rejects = async (promise) => {
+        try {
+          await promise;
+          return null;
+        } catch (e) {
+          return e.name;
+        }
+      };
+      // Aborted before it starts: nothing is drawn.
+      const early = await rejects(pen.mark(target, "underline", { signal: AbortSignal.abort() }));
+      const afterEarly = count();
+      // Aborted while drawing (only possible with motion): the mark goes away.
+      const ctl = new AbortController();
+      const aborted = pen.mark(target, "underline", { signal: ctl.signal });
+      const n = count();
+      ctl.abort();
+      const late = await rejects(aborted);
+      const after = count();
+      return {
+        early: [early, afterEarly - before],
+        added: n - before,
+        after: after - before,
+        drawn,
+        markMs,
+        noteMs,
+        instant: instantDrawn,
+        noteText: [note.textContent, instantNote.textContent],
+        emoji: instantNote.querySelector("[aria-hidden='true']")?.textContent,
+        late,
+      };
+    });
+    const label = reduced ? "reduced motion" : "motion";
+    assert.ok(got.drawn, `${label}: drawn when resolved`);
+    if (reduced) {
+      assert.ok(got.markMs < 100 && got.noteMs < 100, `${label}: instant (${got.markMs} ms)`);
+    } else {
+      assert.ok(got.markMs >= 250, `${label}: the mark draws on (${got.markMs} ms)`);
+      assert.ok(got.noteMs >= 250, `${label}: the note writes on (${got.noteMs} ms)`);
+    }
+    assert.ok(got.instant, `${label}: instant marks are drawn at once`);
+    assert.deepEqual(got.noteText, ["moved up!", "hi 👋"]);
+    assert.equal(got.emoji, "👋", "emoji are decorative");
+    assert.deepEqual(got.early, ["AbortError", 4], `${label}: an aborted signal draws nothing`);
+    assert.equal(got.added, 5, `${label}: four marks/notes plus the pending one`);
+    if (reduced) {
+      assert.deepEqual([got.late, got.after], [null, 5], `${label}: drawn before the abort`);
+    } else {
+      assert.deepEqual([got.late, got.after], ["AbortError", 4], `${label}: abort removes it`);
+    }
+    await page.close();
+  }
+});
+
 // --- Analytics -------------------------------------------------------------------------------
 
 const dataLayer = (page) =>
@@ -1164,7 +1647,16 @@ test("no absolute script, stylesheet, or media URLs except Google's gtag", async
       .filter((u) => /^(https?:)?\/\//.test(u)),
   );
   assert.deepEqual(urls, []);
-  for (const file of ["main.js", "analytics.js", "player.js", "style.css"]) {
+  for (const file of [
+    "main.js",
+    "analytics.js",
+    "player.js",
+    "theme.js",
+    "cast.js",
+    "pen.js",
+    "kit.js",
+    "style.css",
+  ]) {
     const text = readFileSync(path.join(SITE, file), "utf8");
     const found = [...text.matchAll(/https?:\/\/[^\s"'`)]+/g)].map((m) => m[0]);
     for (const u of found) {
