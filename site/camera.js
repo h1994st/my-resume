@@ -12,7 +12,9 @@
 //     The promise resolves when the camera has arrived (or a newer frame() replaced the move) and
 //     rejects with the signal's reason if `signal` aborts (the camera stays where it was then).
 //   camera.rectOf(el) → el's layout box in world units (offsets, so actor and camera transforms
-//     don't move it), camera.toClient(rect) → where a world rect is on screen now (client px),
+//     don't move it; a scrolled positioned ancestor, the terminal's log, does),
+//     camera.scaleFor(rect, { padding, maxScale }) → the scale frame() would use for it,
+//     camera.toClient(rect) → where a world rect is on screen now (client px),
 //     camera.area() → the free area in viewport px, camera.view → { x, y, s } (the world point
 //     at the area's centre and the scale), camera.moving → whether a move is in flight.
 // insets() → { top, right, bottom, left }: viewport px kept clear of the target (the caption and
@@ -25,7 +27,8 @@ const MIN_MS = 700;
 const MAX_MS = 1200;
 
 // el's border box relative to `ancestor`'s padding box, from layout offsets (transform-free;
-// Chrome reports the visual position of an element inside a multi-column flow).
+// Chrome reports the visual position of an element inside a multi-column flow), less the scroll
+// of the offset parents in between (a scroll container must be positioned to count).
 export function offsetRect(el, ancestor) {
   let x = 0;
   let y = 0;
@@ -35,8 +38,8 @@ export function offsetRect(el, ancestor) {
     y += node.offsetTop;
     const parent = node.offsetParent;
     if (parent && parent !== ancestor) {
-      x += parent.clientLeft;
-      y += parent.clientTop;
+      x += parent.clientLeft - parent.scrollLeft;
+      y += parent.clientTop - parent.scrollTop;
     }
     node = parent;
   }
@@ -174,6 +177,7 @@ export function createCamera(viewport, world, { insets = () => ({}) } = {}) {
   return {
     frame,
     rectOf,
+    scaleFor: (r, opts) => fit(r, opts).s,
     toClient,
     area,
     get view() {

@@ -3,8 +3,9 @@
 //
 // createFilm({ scenes, cues, actors, root, onEvent }) → film
 //   { play(), pause(), toggle(), next(), prev(), goTo(n), interact(method), renderEnd(n),
-//     ready, scene, step, playing, animating, seen, inView, busy, actor(id), focus(), camera,
-//     world, sceneCount, speed (the test-only ?speed, speed.js) }
+//     renderStep(n, k) (step k's end frame, for tests), ready, scene, step, playing, animating,
+//     seen, inView, busy, actor(id), focus(), camera, world, sceneCount, speed (the test-only
+//     ?speed, speed.js) }
 // `n` and `scene` are 0-based indexes into `scenes`; events count scenes from 1.
 //
 // ## The scene contract (scenes.js fills it)
@@ -12,7 +13,8 @@
 // scenes: [{ id, name, caption, transcript?, steps: [{ shot?, cues, hold? }] }]
 //   id        the scene's name in events (act_name), e.g. "problem"
 //   name      its chapter name: the controls say "Scene N: name"
-//   caption   the big line over the film; *word* marks the word the highlighter picks out
+//   caption   the big line over the film; *word* marks the word the highlighter picks out; an
+//             emoji in it is decoration (left out of the transcript and the live region)
 //   transcript  extra sentences for the visually hidden transcript (screen readers)
 //   shot      what the camera frames when the step starts (kept until the next shot):
 //               "duna"               an actor, by id
@@ -20,10 +22,13 @@
 //               { note }             a pen note, by the id its note cue gave it
 //               { x, y, w, h }       a rect in world units
 //               [ ... ]              several targets, framed together
-//             or { target, portrait?, grow?, padding?, duration?, maxScale? }: `portrait` (a
-//             target, or { target, grow? }) is framed instead while the free area is taller
-//             than wide; `grow` { top, right, bottom, left } adds world units around the
-//             target; the rest go to camera.frame.
+//             or { target, portrait?, grow?, context?, legible?, padding?, duration?,
+//             maxScale? }: `portrait` (a target, or { target, grow?, context?, legible? }) is
+//             framed instead while the free area is taller than wide; `grow` { top, right,
+//             bottom, left } adds world units around the target; `context` (a target) is
+//             framed with it as long as the scale stays at least `legible` (else the target
+//             alone: a phone keeps the text readable and drops the cat beside it); the rest go
+//             to camera.frame.
 //             An actor in a shot must be on the desk already, or be entered by this step with
 //             a full `at` (x, y, w, h). A shot is framed as its step starts, so put it on the
 //             step after the cue that changes its target's size.
@@ -102,9 +107,14 @@ const esc = (s) =>
     /[&<>"]/g,
     (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c],
   );
-// "a *b* c" → "a <em>b</em> c"; plain() drops the marks.
+// "a *b* c" → "a <em>b</em> c"; plain() drops the marks and the emoji (decoration).
 const emphasis = (s) => esc(s).replace(/\*([^*]+)\*/g, "<em>$1</em>");
-const plain = (s) => String(s).replace(/\*([^*]+)\*/g, "$1");
+const EMOJI = /\s*\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic})*/gu;
+const plain = (s) =>
+  String(s)
+    .replace(/\*([^*]+)\*/g, "$1")
+    .replace(EMOJI, "")
+    .trim();
 const two = (n) => String(n).padStart(2, "0");
 
 function wait(ms, signal) {
@@ -333,16 +343,21 @@ export function createFilm({ scenes, cues, actors, root, onEvent = () => {} }) {
     const a = camera.area();
     if (shot.portrait && a.w < a.h * 0.9) {
       const p = shot.portrait;
-      shot = { ...shot, ...(isShot(p) ? p : { target: p, grow: undefined }) };
+      shot = { ...shot, grow: undefined, context: undefined, ...(isShot(p) ? p : { target: p }) };
     }
     const r = resolve(shot.target, step);
     const g = { top: 0, right: 0, bottom: 0, left: 0, ...shot.grow };
-    const rect = {
+    let rect = {
       x: r.x - g.left,
       y: r.y - g.top,
       w: r.w + g.left + g.right,
       h: r.h + g.top + g.bottom,
     };
+    if (shot.context) {
+      const wide = union([rect, resolve(shot.context, step)]);
+      const fit = { padding: shot.padding, maxScale: shot.maxScale };
+      if (camera.scaleFor(wide, fit) >= (shot.legible ?? 0)) rect = wide;
+    }
     lastShot = { step, rect, area: camera.area() };
     return camera.frame(rect, {
       padding: shot.padding,
@@ -357,6 +372,7 @@ export function createFilm({ scenes, cues, actors, root, onEvent = () => {} }) {
 
   function setCaption(n, animate) {
     const s = scenes[n];
+    root.dataset.scene = s.id; // for scene-specific layout (style.css: the closing call to action)
     caption.querySelector(".film-num").textContent = two(n + 1);
     caption.querySelector(".film-name").textContent = s.name;
     caption.querySelector(".film-line").innerHTML = emphasis(s.caption);
@@ -760,6 +776,7 @@ export function createFilm({ scenes, cues, actors, root, onEvent = () => {} }) {
     goTo,
     interact,
     renderEnd,
+    renderStep: renderAt,
     ready,
     camera,
     world,

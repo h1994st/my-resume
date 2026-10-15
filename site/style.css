@@ -381,6 +381,7 @@
   --pen-desk: #c2410c; /* on the desk */
   --line: rgb(29 35 43 / 0.18);
   --cat-edge: transparent; /* the cats' outline, for the dark desk */
+  --term-edge: transparent; /* the terminal card's edge, for the dark desk */
   --cat-shadow: rgb(29 35 43 / 0.13);
   --dot: rgb(29 35 43 / 0.09); /* the film's desk grid */
   --hl: rgb(251 191 36 / 0.5); /* the caption's highlighter */
@@ -407,6 +408,7 @@
     --pen-desk: #fb923c;
     --line: rgb(238 241 245 / 0.22);
     --cat-edge: rgb(255 255 255 / 0.2);
+    --term-edge: rgb(255 255 255 / 0.14);
     --cat-shadow: rgb(0 0 0 / 0.35);
     --dot: rgb(238 241 245 / 0.07);
     --hl: rgb(234 88 12 / 0.55);
@@ -427,6 +429,7 @@
   --pen-desk: #fb923c;
   --line: rgb(238 241 245 / 0.22);
   --cat-edge: rgb(255 255 255 / 0.2);
+  --term-edge: rgb(255 255 255 / 0.14);
   --cat-shadow: rgb(0 0 0 / 0.35);
   --dot: rgb(238 241 245 / 0.07);
   --hl: rgb(234 88 12 / 0.55);
@@ -1040,12 +1043,165 @@ a:hover {
   fill: currentColor;
 }
 
-/* A terminal card on the desk (terminal.js); Task 3 sizes and styles it for its scenes. */
+/* A terminal card on the desk (terminal.js), only while Duna types (scenes 4, 5, 8). Wide in a
+   landscape window, narrow and tall in a portrait one: the camera frames its lines at a size
+   that reads (scenes.js names its parts, not its size). The log keeps to its bottom, as a
+   terminal does; older lines fade out under the title bar. */
+.term-card {
+  display: flex;
+  flex-direction: column;
+  width: 1440px;
+  height: 760px;
+  overflow: hidden;
+  border-radius: 22px;
+  background: #1c1f24;
+  box-shadow:
+    0 0 0 1.5px var(--term-edge),
+    var(--sheet-shadow);
+  font-size: 24px;
+}
+@media (orientation: portrait) {
+  .term-card {
+    width: 640px;
+    height: 1240px;
+  }
+}
+.term-bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 12px;
+  height: 52px;
+  padding: 0 22px;
+  background: #262a31;
+  color: #8f96a1;
+  font: 500 19px/1 var(--mono);
+}
+.term-bar i {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: #4b525c;
+}
+.term-bar i:first-child {
+  background: #e0685d;
+}
+.term-title {
+  margin-left: 10px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 .term-card > .term {
-  height: 100%;
-  border-radius: 18px;
-  font-size: 22px;
-  box-shadow: var(--sheet-shadow);
+  flex: 1;
+  min-height: 0;
+  height: auto;
+  padding: 18px 28px 24px;
+  border-radius: 0;
+  font-size: 1em;
+}
+.term-card .t-log {
+  position: relative; /* the camera measures lines through it (camera.js offsetRect) */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, transparent 0, #000 72px);
+}
+/* Short logs sit on the input too (the newest line is always just above it). */
+.term-card .t-log > :first-child {
+  margin-top: auto;
+}
+
+/* A rubber stamp on paper, in the pen's ink. */
+.stamp {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  box-sizing: border-box;
+  padding: 10px 22px 10px 16px;
+  border: 5px solid currentColor;
+  border-radius: 16px;
+  color: var(--pen);
+  font: 700 23px/1.25 var(--mono);
+  white-space: nowrap;
+  opacity: 0.9;
+  mix-blend-mode: multiply;
+}
+.stamp-paw svg {
+  display: block;
+  width: 62px;
+  height: 62px;
+  fill: currentColor;
+}
+.stamp-text {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Confetti (the confetti cue): pieces fall in the world and are gone when they land. */
+.film-world > .confetti {
+  position: absolute;
+  pointer-events: none;
+}
+.confetti i {
+  position: absolute;
+  border-radius: 3px;
+}
+
+/* The closing call to action (the cta cue, in the overlay): real links in a band of their own
+   under the caption, which moves up to make room (film.js sets data-scene). */
+.film {
+  --cta-band: 76px;
+}
+.film[data-scene="cta"] .film-caption {
+  bottom: calc(var(--fc-h) + env(safe-area-inset-bottom) + 4px + var(--cta-band));
+}
+.film-cta {
+  position: absolute;
+  left: var(--gutter);
+  right: var(--gutter);
+  bottom: calc(var(--fc-h) + env(safe-area-inset-bottom) + 14px);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.film-cta a {
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+  min-height: 52px;
+  padding: 0 26px;
+  border-radius: 999px;
+  font: 600 18px/1 var(--ui);
+  text-decoration: none;
+}
+.cta-primary {
+  background: var(--ink);
+  color: var(--desk);
+}
+.cta-secondary {
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1.5px var(--line);
+}
+.cta-primary:hover {
+  background: var(--pen-desk);
+}
+.cta-secondary:hover {
+  box-shadow: inset 0 0 0 2px var(--ink);
+}
+@media (max-height: 500px) {
+  .film {
+    --cta-band: 56px;
+  }
+  .film-cta {
+    bottom: calc(var(--fc-h) + env(safe-area-inset-bottom) + 6px);
+  }
+  .film-cta a {
+    min-height: 44px;
+    padding: 0 20px;
+    font-size: 16px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

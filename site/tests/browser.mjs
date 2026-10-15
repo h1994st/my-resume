@@ -614,6 +614,48 @@ test("film: playing a scene after a jump to it keeps its actors on the desk", as
   assert.deepEqual(got, { onDesk: true, ghost: false, opacity: "1" });
 });
 
+test("film: every scene plays from a jump to it", async ({ newPage }) => {
+  // After a jump, play() starts the scene from an empty desk: its first shot must not need an
+  // actor from the scene before.
+  for (const [width, height] of [
+    [1280, 720],
+    [390, 844],
+  ]) {
+    const page = await newPage({ width, height, mobile: width < 800 });
+    await page.animationSpeed(16);
+    await page.goto("/?speed=16");
+    await pausedFilm(page);
+    const got = await page.eval(async () => {
+      const { film } = window.__demo;
+      const errors = [];
+      const error = console.error;
+      console.error = (...args) => errors.push(`${film.scene + 1}: ${args[0]?.message ?? args[0]}`);
+      const out = [];
+      try {
+        for (let n = 0; n < film.sceneCount; n++) {
+          film.goTo(n);
+          film.play();
+          for (let i = 0; i < 300 && film.scene === n && film.playing; i++) {
+            await new Promise((r) => setTimeout(r, 10));
+          }
+          // Still playing (or on to the next scene); the last scene may simply end.
+          out.push(film.playing || film.scene !== n || n === film.sceneCount - 1);
+          film.pause();
+        }
+      } finally {
+        console.error = error;
+      }
+      return { out, errors };
+    });
+    assert.deepEqual(got.errors, [], `${width}×${height}`);
+    assert.ok(
+      got.out.every(Boolean),
+      `${width}×${height}: stopped in scenes ${got.out.map((ok, i) => (ok ? "" : i + 1)).join(" ")}`,
+    );
+    await page.close();
+  }
+});
+
 test("film: a scene's first camera move on a phone runs its course", async ({ newPage }) => {
   // Scene 1's two-line caption gives way to scene 2's one line as scene 2 starts; the move,
   // framed for the new caption, must not be cut short by the caption's resize.
@@ -827,6 +869,287 @@ test("scenes: scene 2's pen mark on the role keeps clear of the bullet under it"
   assert.ok(got.overlap <= 4, `the mark dips ${got.overlap.toFixed(1)} units into the bullet`);
 });
 
+test("scenes: the replica folds to one page, then gets the new role on top", async ({
+  newPage,
+}) => {
+  const page = await newPage();
+  await page.goto("/");
+  await pausedFilm(page);
+  const got = await page.eval(() => {
+    const { film } = window.__demo;
+    const out = [];
+    for (let n = 0; n < film.sceneCount; n++) {
+      film.goTo(n);
+      const resume = film.actor("resume");
+      out.push({
+        state: resume?.dataset.state ?? null,
+        pages: resume?.resume.pageCount() ?? null,
+        first: resume?.querySelector(".r-entry")?.dataset.id ?? null,
+        term: Boolean(film.actor("term")),
+      });
+    }
+    return out;
+  });
+  assert.equal(got.length, 9, "nine scenes");
+  assert.deepEqual(got[5], { state: "granary", pages: 1, first: "windowsill", term: false });
+  assert.deepEqual(got[7], { state: "updated", pages: 2, first: "granary", term: false });
+  // The terminal is a card on the desk for the input scenes (4, 5) and leaves after.
+  assert.deepEqual(
+    got.map((s) => s.term),
+    [false, false, false, true, true, false, false, false, false],
+  );
+  // Scene 8 types on a terminal before it leaves.
+  const enters = await page.eval(async () =>
+    (await import("./scenes.js")).SCENES.map((s) =>
+      s.steps.some((st) => (st.cues ?? []).some((c) => c.do === "enter" && c.kind === "terminal")),
+    ),
+  );
+  assert.deepEqual(enters, [false, false, false, true, true, false, false, true, false]);
+});
+
+test("scenes: the terminal's lines are the ones the real commands print", async ({ newPage }) => {
+  const page = await newPage();
+  await page.goto("/");
+  await pausedFilm(page);
+  const text = await page.eval(() => {
+    const { film } = window.__demo;
+    const seen = [];
+    for (const n of [3, 4]) {
+      film.goTo(n);
+      seen.push(film.actor("term").textContent);
+    }
+    // Scene 8’s card leaves at the end: read it on the step before.
+    film.renderStep(7, 4);
+    seen.push(film.actor("term").textContent);
+    return seen.join("\n");
+  });
+  for (const line of [
+    "/customize-resume https://example.com/careers/senior-mouser",
+    "Fetch(example.com/careers/senior-mouser)",
+    "Received 2.1KB (200 OK)",
+    "Bash(just new granary senior-mouser)",
+    "Created applications/2026-09-granary-senior-mouser — fill in jd.md, then ask Claude to customize.",
+    "Night patrol, early rodent detection",
+    "Monitored 400+ birds a day (Sunbeam)",
+    "To fit one page: drop Service, Honors, two projects, and three papers.",
+    "Proceed with this plan?",
+    "/update-resume Got the job: Senior Mouser at Granary & Sons",
+    "What is the start date (YYYY-MM) and location, and when did your Sunbeam role end?",
+    "2026-11, the grain warehouse; Sunbeam ended 2026-10. First bullet: patrols 40 tons of grain on night shifts",
+    "Updated common/facts/roles.tex with 7 additions and 1 removal",
+  ]) {
+    assert.ok(text.includes(line), `terminal: ${line}`);
+  }
+});
+
+test("cues: Nangnang stamps the tag; confetti falls and leaves nothing behind", async ({
+  newPage,
+}) => {
+  const page = await newPage();
+  await page.animationSpeed(4);
+  await page.send("Page.addScriptToEvaluateOnNewDocument", {
+    source: `
+      window.__confetti = 0;
+      new MutationObserver((records) => {
+        for (const r of records)
+          for (const n of r.addedNodes) if (n.classList?.contains("confetti")) window.__confetti++;
+      }).observe(document, { childList: true, subtree: true });
+    `,
+  });
+  await page.goto("/?speed=4");
+  await pausedFilm(page);
+  const stamp = await page.eval(() => {
+    const { film } = window.__demo;
+    film.goTo(6);
+    const el = film.actor("tag");
+    return {
+      kind: el?.dataset.kind,
+      text: el?.textContent.replace(/\s+/g, ""),
+      nangnang: film.actor("nangnang")?.dataset.cat,
+      proof: "proof" in (film.actor("resume")?.dataset ?? {}),
+      confetti: document.querySelectorAll(".confetti").length,
+    };
+  });
+  assert.deepEqual(stamp, {
+    kind: "stamp",
+    text: "submitted/2026-09-granary-senior-mouser",
+    nangnang: "nangnang",
+    proof: true,
+    confetti: 0,
+  });
+  // Scene 8 played: confetti falls, then is gone; the end frame has none.
+  await page.eval(() => {
+    window.__demo.film.goTo(7);
+    window.__demo.film.play();
+  });
+  await page.waitFor(() => window.__confetti > 0, { timeout: 30_000 });
+  const last = await page.eval(
+    async () => (await import("./scenes.js")).SCENES[7].steps.length - 1,
+  );
+  // Scene 8 has played its last step (autoplay rests on it).
+  await page.waitFor(
+    (k) => {
+      const { film } = window.__demo;
+      return film.scene === 7 && film.step === k && !film.animating;
+    },
+    { args: [last], timeout: 30_000 },
+  );
+  await page.eval(() => window.__demo.film.pause());
+  assert.equal(await page.eval(() => document.querySelectorAll(".confetti").length), 0);
+});
+
+test("cues: no confetti with reduced motion", async ({ newPage }) => {
+  const page = await newPage({ media: REDUCED });
+  await page.send("Page.addScriptToEvaluateOnNewDocument", {
+    source: `
+      window.__confetti = 0;
+      new MutationObserver((records) => {
+        for (const r of records)
+          for (const n of r.addedNodes) if (n.classList?.contains("confetti")) window.__confetti++;
+      }).observe(document, { childList: true, subtree: true });
+    `,
+  });
+  await page.goto("/?speed=16");
+  await page.waitFor(() => window.__demo.film.seen);
+  await page.eval(() => {
+    window.__demo.film.goTo(7);
+    window.__demo.film.play();
+  });
+  await page.waitFor(() => window.__demo.film.scene === 8, { timeout: 20_000 });
+  assert.equal(await page.eval(() => window.__confetti), 0);
+});
+
+test("film: every shot frames its target inside the free area at every size", async ({
+  newPage,
+}) => {
+  const problems = [];
+  for (const [width, height] of SIZES) {
+    const page = await newPage({ width, height, mobile: width < 800 || height < 500 });
+    await page.goto("/");
+    await pausedFilm(page);
+    const shots = await page.eval(async () => {
+      const { SCENES } = await import("./scenes.js");
+      const { film } = window.__demo;
+      const out = [];
+      SCENES.forEach((scene, n) => {
+        scene.steps.forEach((step, k) => {
+          if (!step.shot) return;
+          film.renderStep(n, k);
+          const term = film.actor("term");
+          const onTerm = JSON.stringify(step.shot).includes('"term"');
+          const film_ = document.getElementById("film").getBoundingClientRect();
+          out.push({
+            at: `scene ${n + 1} step ${k + 1}`,
+            focus: film.focus(),
+            free: {
+              left: film_.left,
+              right: film_.right,
+              top: film_.top,
+              bottom: document.querySelector(".film-caption").getBoundingClientRect().top,
+            },
+            // The terminal's text on screen (px), for shots on the terminal card.
+            termPx:
+              onTerm && term
+                ? parseFloat(getComputedStyle(term).fontSize) * film.camera.view.s
+                : null,
+          });
+        });
+      });
+      return out;
+    });
+    for (const s of shots) {
+      const f = s.focus;
+      const ok =
+        f &&
+        f.left >= s.free.left - 2 &&
+        f.right <= s.free.right + 2 &&
+        f.top >= s.free.top - 2 &&
+        f.bottom <= s.free.bottom + 2;
+      if (!ok) problems.push(`${width}×${height} ${s.at}: focus outside the free area`);
+      if (s.termPx !== null && s.termPx < 12) {
+        problems.push(`${width}×${height} ${s.at}: terminal text ${s.termPx.toFixed(1)} px`);
+      }
+    }
+    await page.close();
+  }
+  assert.deepEqual(problems, []);
+});
+
+test("film: a scripted run emits act 1–9, then complete", async ({ newPage }) => {
+  const page = await newPage();
+  await page.animationSpeed(16);
+  await page.goto("/?speed=16");
+  await page.waitFor(() => window.__demo.film.playing);
+  await page.waitFor(() => window.__demo.events.some((e) => e.name === "complete"), {
+    timeout: 60_000,
+  });
+  const events = await page.eval(() =>
+    window.__demo.events.filter((e) => e.name === "act" || e.name === "complete"),
+  );
+  const names = await sceneNames(page);
+  assert.deepEqual(events, [
+    ...names.map(([id], i) => ({ name: "act", params: { act: i + 1, act_name: id } })),
+    { name: "complete", params: { method: "autoplay" } },
+  ]);
+  assert.deepEqual(
+    names.map(([id]) => id),
+    ["problem", "meet", "job", "prompt", "plan", "tailor", "ship", "update", "cta"],
+  );
+});
+
+test("film: ?speed is clamped to 0.25–16", async ({ newPage }) => {
+  const page = await newPage();
+  const got = [];
+  for (const q of ["100", "0.01", "8", "nope"]) {
+    await page.goto(`/?speed=${q}`);
+    got.push(await page.eval(() => window.__demo.film.speed));
+  }
+  assert.deepEqual(got, [16, 0.25, 8, 1]);
+});
+
+test("film: scene 9's call to action is a real link, outside the aria-hidden world", async ({
+  newPage,
+}) => {
+  const page = await newPage();
+  await page.goto("/");
+  await pausedFilm(page);
+  const got = await page.eval(() => {
+    window.__demo.film.goTo(8);
+    const links = [...document.querySelectorAll(".film-overlay a")];
+    return links.map((a) => ({
+      href: a.href,
+      text: a.textContent.trim(),
+      hidden: Boolean(a.closest("[aria-hidden='true']")),
+      tab: a.tabIndex,
+    }));
+  });
+  assert.deepEqual(got, [
+    {
+      href: "https://github.com/h1994st/my-resume/generate",
+      text: "Use this template",
+      hidden: false,
+      tab: 0,
+    },
+    { href: "https://github.com/h1994st/my-resume", text: "GitHub", hidden: false, tab: 0 },
+  ]);
+  // Tab reaches it (after the header, before the film's controls).
+  await page.eval(() => document.getElementById("theme-toggle").focus());
+  let reached = false;
+  for (let i = 0; i < 20 && !reached; i++) {
+    await page.key("Tab");
+    reached = await page.eval(() => Boolean(document.activeElement?.closest(".film-overlay")));
+  }
+  assert.ok(reached, "Tab reaches the call to action");
+  // Gone from other scenes.
+  assert.equal(
+    await page.eval(() => {
+      window.__demo.film.goTo(7);
+      return document.querySelectorAll(".film-overlay a").length;
+    }),
+    0,
+  );
+});
+
 test("film: the controls fade after 2.5 s while playing and come back", async ({ newPage }) => {
   const page = await newPage();
   await page.goto("/");
@@ -1028,10 +1351,17 @@ test("film: controls, swipes, and events", async ({ newPage }) => {
   assert.match(a11y.live, new RegExp(`^Scene ${last + 1} of ${last + 1}, `));
   assert.equal(a11y.role, "demo");
   assert.equal(a11y.hidden, "true");
+  // The transcript has every caption, without the highlighter's marks and the emoji (decoration).
   const captions = await page.eval(async () =>
-    (await import("./scenes.js")).SCENES.map((s) => s.caption.replace(/\*/g, "")),
+    (await import("./scenes.js")).SCENES.map((s) =>
+      s.caption
+        .replace(/\*/g, "")
+        .replace(/\s*\p{Extended_Pictographic}/gu, "")
+        .trim(),
+    ),
   );
   for (const c of captions) assert.ok(a11y.transcript.includes(c), `transcript: ${c}`);
+  assert.ok(!/\p{Extended_Pictographic}/u.test(a11y.transcript), "no emoji in the transcript");
   // A swipe that starts on the controls doesn't step.
   for (const sel of [".fc-chapters", ".fc-buttons"]) {
     const at = await page.eval((s) => {
@@ -1094,6 +1424,26 @@ const filmLayout = (page) =>
       line: rect(q(".film-line")),
       lineSize: parseFloat(getComputedStyle(q(".film-line")).fontSize),
       focus: window.__demo.film.focus(),
+      // The call to action (scene 9): each link's box and its contrast against what is under it.
+      cta: [...document.querySelectorAll(".film-overlay a")].map((a) => {
+        const rgb = (c) =>
+          c
+            .match(/[\d.]+/g)
+            .slice(0, 4)
+            .map(Number);
+        const lum = ([r, g, b]) => {
+          const ch = (v) => ((v /= 255) <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+          return 0.2126 * ch(r) + 0.7152 * ch(g) + 0.0722 * ch(b);
+        };
+        const cs = getComputedStyle(a);
+        const bg = rgb(cs.backgroundColor);
+        const under =
+          bg.length === 4 && bg[3] === 0
+            ? rgb(getComputedStyle(document.body).backgroundColor)
+            : bg;
+        const [l1, l2] = [lum(rgb(cs.color)), lum(under)].sort((x, y) => y - x);
+        return { rect: rect(a), contrast: (l1 + 0.05) / (l2 + 0.05) };
+      }),
     };
   });
 
@@ -1137,6 +1487,14 @@ function checkFilmLayout(m, label) {
     inside(m.focus, free, 2),
     `${label}: focus ${JSON.stringify(m.focus)} outside ${JSON.stringify(free)}`,
   );
+  // The call to action: on screen, between the caption and the controls, 44 px tall, legible.
+  for (const { rect: r, contrast } of m.cta) {
+    assert.ok(inside(r, screen), `${label}: a call-to-action link off screen`);
+    assert.ok(r.top >= m.caption.bottom - 1, `${label}: the call to action overlaps the caption`);
+    assert.ok(r.bottom <= m.controls.top + 1, `${label}: the call to action overlaps the controls`);
+    assert.ok(r.height >= 44, `${label}: a ${r.height} px call-to-action link`);
+    assert.ok(contrast >= 4.5, `${label}: call-to-action contrast ${contrast.toFixed(2)}`);
+  }
 }
 
 test("layout: every scene's end frame at every size, in both themes, with screenshots", async ({
@@ -1867,7 +2225,12 @@ test("no absolute script, stylesheet, or media URLs except Google's gtag", async
     const found = [...text.matchAll(/https?:\/\/[^\s"'`)]+/g)].map((m) => m[0]);
     for (const u of found) {
       assert.ok(
-        u.startsWith("https://www.googletagmanager.com/gtag/js") || /w3\.org/.test(u),
+        // gtag; SVG namespaces; the repo's own links (the film's call to action); the
+        // demo's typed example URL (text, never fetched).
+        u.startsWith("https://www.googletagmanager.com/gtag/js") ||
+          /w3\.org/.test(u) ||
+          /^https:\/\/github\.com\/h1994st\/my-resume(\/generate)?$/.test(u) ||
+          u.startsWith("https://example.com/"),
         `${file}: unexpected absolute URL ${u}`,
       );
     }

@@ -10,8 +10,10 @@
 // its file name starts empty for a type cue), resume { state, highlight } (the replica, both
 // pages; `el.resume` is its createResume API, `el.dataset.state` its state; a kept replica is
 // updated to exactly what create + mount would build), posting (the Granary & Sons job), paws { from,
-// to } (a trail of prints, in world units), terminal (a desk card around createTerminal; Task 3
-// styles it).
+// to } (a trail of prints, in world units), terminal { lines } (a desk card around createTerminal,
+// sized by style.css: wide in a landscape window, narrow and tall in a portrait one, so its text
+// stays readable; `lines` is what it already shows, its history), stamp { text } (a rubber stamp:
+// a paw print and lines of text).
 //
 // Cue kinds (CUES), each with an animated `run` and an `instant` end state:
 //   enter { id, kind, at, from?, props?, fresh? }  puts an actor on the desk; `from` { dx, dy,
@@ -21,18 +23,25 @@
 //   move { id, at, walk?, duration? }    moves it (FLIP); `walk` hops like a cat
 //   pose { id, pose }                    a cat's pose (resolves after one cycle; use wait: false)
 //   type { target, text, cps? }          types text into an element, a caret while typing
-//   mark { target, kind, on?, from?, grow?, ink?, pad?, seed?, duration? }   a pen mark, in the target's
-//       pen layer unless `on` names an actor or "world"; `from` (arrows) is a point in the
-//       layer's units or a target (the arrow starts at its edge facing the mark's target);
-//       `grow` (world units, or { top, right, bottom, left }; negative shrinks) widens the target
-//       (an arrow then stops short of it; an underline with a negative bottom sits closer)
+//   mark { target, kind, on?, from?, grow?, text?, ink?, pad?, seed?, duration? }   a pen mark,
+//       in the target's pen layer unless `on` names an actor or "world"; `from` (arrows) is a
+//       point in the layer's units or a target (the arrow starts at its edge facing the mark's
+//       target); `grow` (world units, or { top, right, bottom, left }; negative shrinks) widens
+//       the target (an arrow then stops short of it; an underline with a negative bottom sits
+//       closer); `text: true` marks the target's text, not its box (a strike as long as the line)
 //   note { id?, text, at, side?, gap?, size?, rotate?, weight?, on?, ink? }   a pen note; `at` is
 //       a point { x, y } (top left) or a target with `side`
-//   resume { id, state, highlight?, animate? }   the replica's state (resume-data.js keys)
+//   resume { id, state, highlight?, animate?, clear? }   the replica's state (resume-data.js
+//       keys); `clear` first wipes the pen marks on it (they would point at the old layout)
 //   proof { id, show }                   crossfades the replica's page 1 to img/tailored-1.png
 //   terminal { id, lines }               plays terminal lines (terminal.js) in a terminal actor
+//   stamp { id, at, text, jolt? }        a stamp actor lands at `at` with an impact (`jolt`: an
+//       actor that jumps under it)
+//   confetti { at, n?, ms?, seed? }      confetti falls over `at` (a world rect) and is gone at
+//       the end: the end state is no confetti, and with reduced motion none falls at all
+//   cta { links: [{ text, href, primary? }] }   real links in the film's overlay (not aria-hidden;
+//       style.css lays them out under the caption of the scene with the id "cta")
 //   wait { ms }
-// Left for the scenes that need them (Task 3): stamp, confetti.
 
 import { createCat } from "./cast.js";
 import { clearPen, mark, markInstant, note, noteInstant } from "./pen.js";
@@ -293,13 +302,40 @@ export const ACTORS = {
     },
   },
 
-  // A terminal card on the desk (terminal.js); `el.term` is its API.
+  // A terminal card on the desk (terminal.js); `el.term` is its API. `lines` is its history:
+  // what it shows when it enters (a kept card shows it again, so a scene that goes on from the
+  // last one starts where it left off).
   terminal: {
     create() {
       const el = h("div", "term-card");
+      el.append(
+        h(
+          "div",
+          "term-bar",
+          '<i></i><i></i><i></i><span class="term-title">claude — ~/my-resume</span>',
+        ),
+      );
       const inner = h("div");
       el.append(inner);
       el.term = createTerminal(inner);
+      return el;
+    },
+    mount(el, { lines = [] }) {
+      el.term.renderInstant(lines);
+    },
+    update(el, { lines = [] }) {
+      el.term.reset();
+      el.term.renderInstant(lines);
+    },
+  },
+
+  // A rubber stamp, inked on paper: a paw print and its lines of text.
+  stamp: {
+    create({ text = [] }) {
+      const el = h("div", "stamp");
+      el.innerHTML = `<span class="stamp-paw">${PAW}</span><span class="stamp-text">${text
+        .map((t) => `<span>${esc(t)}</span>`)
+        .join("")}</span>`;
       return el;
     },
   },
@@ -337,7 +373,7 @@ function markArgs(cue, ctx) {
       : cue.on
         ? ctx.el(cue.on)
         : (el?.closest("[data-pen-layer]") ?? ctx.world);
-  const r = ctx.rect(el ?? cue.target, layer);
+  const r = cue.text && el ? textRect(el, layer, ctx) : ctx.rect(el ?? cue.target, layer);
   const n = typeof cue.grow === "number" ? cue.grow : 0;
   const g = {
     top: n,
@@ -363,6 +399,22 @@ function markArgs(cue, ctx) {
   if (cue.from)
     opts.from = isPoint(cue.from) ? cue.from : edgeToward(ctx.rect(cue.from, layer), rect);
   return [rect, cue.kind, opts];
+}
+
+// The box of el's text (its line, not its block) in `layer`'s units: where el is laid out
+// (offsets: no transform moves it), plus where its text sits inside it, measured on screen
+// relative to el itself (so a camera move or an animation moving el changes nothing). Rounded
+// to whole units, so an end frame and a played frame agree.
+function textRect(el, layer, ctx) {
+  const base = ctx.rect(el, layer);
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  const t = range.getBoundingClientRect();
+  const e = el.getBoundingClientRect();
+  const s = e.width / el.offsetWidth || 1;
+  const x = Math.round(base.x + (t.left - e.left) / s);
+  const y = Math.round(base.y + (t.top - e.top) / s);
+  return { x, y, w: Math.round(t.width / s), h: Math.round(t.height / s) };
 }
 
 function noteArgs(cue, ctx) {
@@ -513,15 +565,17 @@ export const CUES = {
   },
 
   resume: {
-    async run({ id, state, highlight = [], animate = true }, ctx, signal) {
+    async run({ id, state, highlight = [], animate = true, clear = false }, ctx, signal) {
       const el = ctx.el(id);
+      if (clear) clearPen(el);
       el.resume.render(state, { animate });
       el.dataset.state = state;
       el.resume.highlight(highlight);
       if (animate && !ctx.reduced) await ctx.wait(900, signal);
     },
-    instant({ id, state, highlight = [] }, ctx) {
+    instant({ id, state, highlight = [], clear = false }, ctx) {
       const el = ctx.el(id);
+      if (clear) clearPen(el);
       el.resume.render(state, { animate: false });
       el.dataset.state = state;
       el.resume.highlight(highlight);
@@ -547,6 +601,121 @@ export const CUES = {
     },
   },
 
+  stamp: {
+    run(cue, ctx, signal) {
+      const el = stampOn(cue, ctx);
+      if (ctx.reduced) return Promise.resolve();
+      const r = rotOf(el);
+      const landing = el.animate(
+        [
+          { scale: "2.3", rotate: `${r - 9}deg`, opacity: 0 },
+          { scale: "0.93", rotate: `${r}deg`, opacity: 1, offset: 0.55 },
+          { scale: "1.03", rotate: `${r}deg`, opacity: 1, offset: 0.78 },
+          { scale: "1", rotate: `${r}deg`, opacity: 1 },
+        ],
+        { duration: 560, easing: "cubic-bezier(0.55, 0, 0.6, 1)" },
+      );
+      const done = [finish(landing, signal)];
+      const under = cue.jolt && ctx.actor(cue.jolt);
+      if (under) {
+        const jolt = under.animate(
+          [
+            { translate: "0 0" },
+            { translate: "0 7px" },
+            { translate: "0 -2px" },
+            { translate: "0 0" },
+          ],
+          { duration: 260, delay: 300, easing: "ease-out" },
+        );
+        done.push(finish(jolt, signal));
+      }
+      return Promise.all(done);
+    },
+    instant(cue, ctx) {
+      stampOn(cue, ctx);
+    },
+  },
+
+  // Fire and forget: whatever happens, the confetti is gone when the cue ends.
+  confetti: {
+    run({ at, n = 80, ms = 2600, seed = 11 }, ctx, signal) {
+      if (ctx.reduced) return Promise.resolve();
+      const box = h("div", "confetti");
+      ctx.place(box, { x: at.x, y: at.y, z: 30 });
+      ctx.world.append(box);
+      const rnd = random(seed);
+      const falls = [];
+      for (let i = 0; i < n; i++) {
+        const bit = h("i");
+        const w = 9 + rnd() * 7;
+        Object.assign(bit.style, {
+          left: `${Math.round(rnd() * at.w)}px`,
+          top: `${Math.round(-rnd() * 160)}px`,
+          width: `${Math.round(w)}px`,
+          height: `${Math.round(w * (1.4 + rnd() * 0.6))}px`,
+          background: CONFETTI[i % CONFETTI.length],
+        });
+        box.append(bit);
+        const drift = (rnd() - 0.5) * 220;
+        const spin = (rnd() < 0.5 ? -1 : 1) * (360 + rnd() * 540);
+        const fall = at.h + 160 + rnd() * 120;
+        falls.push(
+          finish(
+            bit.animate(
+              [
+                { translate: "0 0", rotate: "0deg", opacity: 1 },
+                {
+                  translate: `${drift * 0.6}px ${fall * 0.5}px`,
+                  rotate: `${spin * 0.5}deg`,
+                  opacity: 1,
+                  offset: 0.5,
+                },
+                {
+                  translate: `${drift}px ${fall * 0.82}px`,
+                  rotate: `${spin * 0.82}deg`,
+                  opacity: 1,
+                  offset: 0.82,
+                },
+                { translate: `${drift * 1.1}px ${fall}px`, rotate: `${spin}deg`, opacity: 0 },
+              ],
+              {
+                duration: ms * (0.65 + rnd() * 0.35),
+                delay: rnd() * 520,
+                easing: "cubic-bezier(0.3, 0.45, 0.6, 1)",
+                fill: "backwards",
+              },
+            ),
+            signal,
+          ),
+        );
+      }
+      return Promise.all(falls).finally(() => box.remove());
+    },
+    instant(cue, ctx) {
+      for (const el of ctx.world.querySelectorAll(".confetti")) el.remove();
+    },
+  },
+
+  cta: {
+    async run(cue, ctx, signal) {
+      const el = ctaOf(cue, ctx);
+      if (ctx.reduced) return;
+      await finish(
+        el.animate(
+          [
+            { opacity: 0, translate: "0 12px" },
+            { opacity: 1, translate: "0 0" },
+          ],
+          { duration: 600, easing: EASE_OUT },
+        ),
+        signal,
+      );
+    },
+    instant(cue, ctx) {
+      ctaOf(cue, ctx);
+    },
+  },
+
   wait: {
     run({ ms }, ctx, signal) {
       return ctx.reduced ? Promise.resolve() : ctx.wait(ms, signal);
@@ -554,6 +723,39 @@ export const CUES = {
     instant() {},
   },
 };
+
+// Puts a stamp cue's stamp on the desk (an actor, so the next scene clears it).
+function stampOn({ id, at, text }, ctx) {
+  return ctx.add({ id, kind: "stamp", at, props: { text } }).el;
+}
+
+// The call to action's links, in the overlay (replacing any there).
+function ctaOf({ links }, ctx) {
+  for (const old of ctx.overlay.querySelectorAll(".film-cta")) old.remove();
+  const el = h("div", "film-cta");
+  el.dataset.noSwipe = "";
+  for (const { text, href, primary } of links) {
+    const a = h("a", primary ? "cta-primary" : "cta-secondary");
+    a.href = href;
+    a.textContent = text;
+    el.append(a);
+  }
+  ctx.overlay.append(el);
+  return el;
+}
+
+const CONFETTI = ["#f59e0b", "#10b981", "#6366f1", "#ef4444", "#ec4899", "#0ea5e9", "#c2410c"];
+
+// A small seeded generator (mulberry32): the same confetti every time.
+function random(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
 
 // Moves an actor to `cue.at` (merged into where it is); returns { el, before, at }.
 function moveTo(cue, ctx) {
@@ -584,6 +786,7 @@ const DUNA_2 = { x: -480, y: 660, ...CAT, z: 5 };
 const POSTING = { x: 2560, y: 0, w: 780, h: 880, r: -1.2, z: 2 };
 const DUNA_3 = { x: 3200, y: 590, ...CAT, z: 5 };
 const RESUME = { x: 0, y: 0, w: 1680, h: 1056, z: 1 };
+const RESUME_1 = { ...RESUME, w: 816 }; // one page (the Granary variant)
 
 const copy = (n, file, headline, at) => [
   {
@@ -607,6 +810,94 @@ const copy = (n, file, headline, at) => [
 // The role header the camera pushes onto in scene 2 (its title line), and the title itself.
 const ROLE = { actor: "resume", sel: '[data-id="windowsill"] .r-title' };
 const ROLE_TITLE = { actor: "resume", sel: '[data-id="windowsill"] .r-title b' };
+
+// Scenes 4 and 5: a terminal card right of the posting, Duna between them. The card's size
+// comes from style.css (it depends on the window's shape), so shots on it name its parts.
+const TERM_A = { x: 3720, y: 0, z: 3 };
+const TERM_A_AREA = { x: 3360, y: -40, w: 1840, h: 840 }; // the card (landscape) and Duna
+const TERM_A_AREA_PORTRAIT = { x: 3700, y: -40, w: 680, h: 1320 }; // the card (portrait)
+const DUNA_4 = { x: 3400, y: 350, ...CAT, z: 5 };
+const INPUT_A = { actor: "term", sel: ".t-input" };
+const TABLE = { actor: "term", sel: ".t-grid" };
+// Scenes 6 to 9: Duna sits left of the replica; scene 8's card lies further left.
+const DUNA_L = { x: -400, y: 420, ...CAT, z: 5 };
+const DUDU = { x: -730, y: 450, ...CAT, z: 4 };
+const NANGNANG = { x: 800, y: 640, ...CAT, z: 7 };
+const STAMP_AT = { x: 268, y: 902, r: -6, z: 6 };
+const STAMP_AREA = { x: 250, y: 860, w: 566, h: 180 }; // where it lands, tilt included
+const TERM_B = { x: -2040, y: 0, z: 3 };
+
+const bullet = (id) => ({ actor: "resume", sel: `[data-id="${id}"]` });
+const head = (id) => ({ actor: "resume", sel: `[data-id="sec:${id}"] .r-tab` });
+const SUNBEAM = { actor: "resume", sel: '[data-id="windowsill"]' };
+const NEW_ROLE = { actor: "resume", sel: '[data-id="granary"]' };
+const NEW_ROLE_TITLE = { actor: "resume", sel: '[data-id="granary"] .r-title b' };
+const NEW_ROLE_NODE = { actor: "resume", sel: '[data-id="granary"] .r-node' };
+const PAGE_1 = { x: 0, y: 0, w: 816, h: 1056 };
+const SPREAD = { x: -560, y: -60, w: 2290, h: 1170 }; // both pages, and Duna
+// Pen notes beside the replica (their top left; the rect is about the note's size).
+const UP_NOTE = { x: 836, y: 262, w: 210, h: 80 };
+const REAL_NOTE = { x: -590, y: 160, w: 540, h: 160 };
+
+// Terminal lines (terminal.js), as the real commands and skills print them (copied from the
+// repo: the justfile, the two skills, and applications/2026-09-granary-senior-mouser/).
+const APP = "applications/2026-09-granary-senior-mouser";
+const HELLO = [{ t: "welcome" }];
+const PROMPT = [
+  { t: "prompt", text: "/customize-resume https://example.com/careers/senior-mouser" },
+];
+const SETUP = [
+  { t: "spin", text: "Sniffing", ms: 1000 },
+  { t: "tool", name: "Fetch", arg: "example.com/careers/senior-mouser" },
+  { t: "result", text: "Received 2.1KB (200 OK)" },
+  { t: "tool", name: "Bash", arg: "just new granary senior-mouser" },
+  { t: "result", text: `Created ${APP} — fill in jd.md, then ask Claude to customize.` },
+  { t: "tool", name: "Write", arg: "…/jd.md" },
+  { t: "result", text: "Wrote 37 lines to …/jd.md" },
+];
+const PLAN = [
+  { t: "say", text: "JD signals, mapped to evidence in canonical:" },
+  {
+    t: "table",
+    head: ["JD signal", "Evidence", "Change"],
+    rows: [
+      [
+        "Night patrol, early rodent detection",
+        "Monitored 400+ birds a day (Sunbeam)",
+        "Lead with it",
+      ],
+      ["Fast response, incident reporting", "Chirping alerts in under 2 seconds", "Summary"],
+      ["Box inventory inspection", "Inspected 1,200 boxes (Cardboard)", "Keep first"],
+      ["Training younger cats", "Mentored two younger cats", "Move up"],
+      ["Rodent-detection research", "ACWS 2019, Best Paper", "Keep only this paper"],
+    ],
+  },
+  { t: "say", text: "To fit one page: drop Service, Honors, two projects, and three papers." },
+];
+const APPROVE = [
+  { t: "ask", question: "Proceed with this plan?", options: ["Yes", "Adjust the plan"], pick: 0 },
+];
+// Scene 8 (a demo step: this role is not in the repo). Claude asks for every date it writes.
+const UPDATE_ASK = [
+  { t: "prompt", text: "/update-resume Got the job: Senior Mouser at Granary & Sons" },
+  { t: "spin", text: "Purring", ms: 1000 },
+  {
+    t: "say",
+    text: "What is the start date (YYYY-MM) and location, and when did your Sunbeam role end?",
+  },
+];
+const UPDATE_ANSWER = [
+  {
+    t: "prompt",
+    text: "2026-11, the grain warehouse; Sunbeam ended 2026-10. First bullet: patrols 40 tons of grain on night shifts",
+  },
+];
+const UPDATE_WRITE = [
+  { t: "tool", name: "Update", arg: "common/facts/roles.tex" },
+  { t: "result", text: "Updated common/facts/roles.tex with 7 additions and 1 removal" },
+  { t: "tool", name: "Update", arg: "canonical/resume.tex" },
+  { t: "result", text: "Updated canonical/resume.tex with 3 additions" },
+];
 
 export const SCENES = [
   {
@@ -860,6 +1151,597 @@ export const SCENES = [
           },
         ],
         hold: 2600,
+      },
+    ],
+  },
+  {
+    id: "prompt",
+    name: "The prompt",
+    caption: "She asks Claude to *tailor* it.",
+    transcript: [
+      "Duna types one line into Claude Code: /customize-resume https://example.com/careers/senior-mouser.",
+      "Claude fetches the posting (Received 2.1KB, 200 OK), runs just new granary senior-mouser, which creates applications/2026-09-granary-senior-mouser, and writes 37 lines to jd.md, the job description summary.",
+    ],
+    steps: [
+      {
+        // The camera travels on to a terminal card beside the posting.
+        shot: {
+          target: { x: 2520, y: -60, w: 2700, h: 940 },
+          portrait: { x: 3340, y: -60, w: 1060, h: 1380 },
+        },
+        cues: [
+          { do: "enter", id: "resume", kind: "resume", at: RESUME, wait: false },
+          { do: "enter", id: "posting", kind: "posting", at: POSTING, wait: false },
+          {
+            do: "enter",
+            id: "paws-4",
+            kind: "paws",
+            at: { z: 0 },
+            props: { from: { x: 3330, y: 990 }, to: { x: 3560, y: 830 } },
+            wait: false,
+          },
+          {
+            do: "enter",
+            id: "term",
+            kind: "terminal",
+            at: TERM_A,
+            from: { dy: 90, o: 0 },
+            props: { lines: HELLO },
+            wait: false,
+            delay: 200,
+          },
+          { do: "enter", id: "duna", kind: "cat", at: DUNA_4, props: { name: "duna" } },
+        ],
+        hold: 500,
+      },
+      {
+        // Zoom in on the prompt as she types it.
+        shot: {
+          target: INPUT_A,
+          grow: { top: 40, bottom: 150 },
+          context: "duna",
+          legible: 0.62,
+        },
+        cues: [
+          { do: "pose", id: "duna", pose: "tap", wait: false },
+          { do: "terminal", id: "term", lines: PROMPT },
+          { do: "pose", id: "duna", pose: "sit", wait: false },
+          {
+            do: "note",
+            id: "paw",
+            text: "one line. one paw. 🐾",
+            at: INPUT_A,
+            side: "below",
+            gap: 34,
+            size: 64,
+            rotate: -2,
+          },
+        ],
+        hold: 900,
+      },
+      {
+        // Claude gets to work: the posting, a new application folder, jd.md.
+        shot: {
+          target: INPUT_A,
+          grow: { top: 330, bottom: 20 },
+          context: ["term", "duna", { note: "paw" }],
+          legible: 0.5,
+        },
+        cues: [{ do: "terminal", id: "term", lines: SETUP }],
+        hold: 2200,
+      },
+    ],
+  },
+  {
+    id: "plan",
+    name: "The plan",
+    caption: "Claude *asks first*.",
+    transcript: [
+      "Claude maps the job’s signals to evidence already in her resume: night patrol and early rodent detection to monitoring 400+ birds a day at Sunbeam (lead with it); fast response to chirping alerts in under 2 seconds (summary); box inventory inspection to 1,200 boxes inspected at Cardboard (keep first); training younger cats to mentoring two younger cats (move up); rodent-detection research to ACWS 2019, Best Paper (keep only this paper).",
+      "To fit one page it would drop Service, Honors, two projects, and three papers. It asks: Proceed with this plan? Duna slow-blinks and picks 1. Yes. A pen note: asks first, no fibs.",
+    ],
+    steps: [
+      {
+        // Duna and the card (a rect: after a jump the card isn't on the desk yet).
+        shot: { target: TERM_A_AREA, portrait: TERM_A_AREA_PORTRAIT },
+        cues: [
+          { do: "enter", id: "resume", kind: "resume", at: RESUME, wait: false },
+          { do: "enter", id: "posting", kind: "posting", at: POSTING, wait: false },
+          {
+            do: "enter",
+            id: "term",
+            kind: "terminal",
+            at: TERM_A,
+            props: { lines: [...HELLO, ...PROMPT, ...SETUP] },
+            wait: false,
+          },
+          {
+            do: "enter",
+            id: "duna",
+            kind: "cat",
+            at: DUNA_4,
+            props: { name: "duna" },
+            wait: false,
+          },
+          { do: "terminal", id: "term", lines: PLAN },
+        ],
+        hold: 400,
+      },
+      {
+        // Zoom on the table: every change has evidence behind it.
+        shot: { target: TABLE, grow: 16 },
+        cues: [{ do: "wait", ms: 900 }],
+        hold: 2600,
+      },
+      {
+        // ... and on the question: nothing changes without her yes.
+        shot: {
+          target: INPUT_A,
+          grow: { top: 210, bottom: 150 },
+          context: "duna",
+          legible: 0.62,
+        },
+        cues: [
+          { do: "terminal", id: "term", lines: APPROVE },
+          { do: "pose", id: "duna", pose: "blink", wait: false },
+          {
+            do: "note",
+            id: "fibs",
+            text: "asks first. no fibs. 🐟",
+            at: INPUT_A,
+            side: "below",
+            gap: 34,
+            size: 64,
+            rotate: -2,
+          },
+        ],
+        hold: 2400,
+      },
+    ],
+  },
+  {
+    id: "tailor",
+    name: "Tailoring",
+    caption: "The resume *rewrites itself*.",
+    transcript: [
+      "Back at her resume, the pen strikes the 5 a.m. breakfast and dog-treaty bullets (the dog stays off this one) and the Service and Honors sections.",
+      "The resume rewrites itself into the Granary variant: a new headline, bird monitoring moved up to the first bullet, mentoring after it, and two pages folded into one.",
+    ],
+    steps: [
+      {
+        // Back to the replica; Duna bounds in to watch.
+        shot: {
+          target: SPREAD,
+          portrait: { x: -500, y: -40, w: 1340, h: 1130 },
+        },
+        cues: [
+          {
+            do: "enter",
+            id: "resume",
+            kind: "resume",
+            at: RESUME,
+            props: { state: "canonical" },
+            wait: false,
+          },
+          {
+            do: "enter",
+            id: "paws-6",
+            kind: "paws",
+            at: { z: 0 },
+            props: { from: { x: -820, y: 760 }, to: { x: -330, y: 735 } },
+            wait: false,
+          },
+          {
+            do: "enter",
+            id: "duna",
+            kind: "cat",
+            fresh: true,
+            at: DUNA_L,
+            from: { dx: -380, dy: -30, o: 0 },
+            props: { name: "duna" },
+          },
+        ],
+        hold: 300,
+      },
+      {
+        // Zoom in on Sunbeam: two bullets don't fit the job.
+        shot: {
+          target: [SUNBEAM, bullet("w-dog")],
+          grow: { left: 16, right: 16, top: 16, bottom: 16 },
+          context: ["duna", { x: -600, y: 130, w: 560, h: 150 }],
+          legible: 1.1,
+          duration: 1100,
+        },
+        cues: [
+          {
+            do: "mark",
+            target: bullet("w-breakfast"),
+            kind: "strike",
+            text: true,
+            after: "camera",
+          },
+          { do: "mark", target: bullet("w-dog"), kind: "strike", text: true },
+          // On the desk above Duna, but in the replica's pen layer: the rewrite wipes it.
+          {
+            do: "note",
+            id: "dog",
+            text: "the dog stays\noff this one 🐶",
+            at: { x: -590, y: 150 },
+            size: 56,
+            rotate: -3,
+            on: "resume",
+            ink: "desk",
+          },
+          {
+            do: "mark",
+            target: bullet("w-dog"),
+            kind: "arrow",
+            text: true,
+            on: "resume",
+            from: { note: "dog" },
+            grow: { left: 8, right: -560, top: 4, bottom: 4 },
+            ink: "desk",
+          },
+        ],
+        hold: 1500,
+      },
+      {
+        // Pull back: what else goes (a phone stays on the sections that go) ...
+        shot: {
+          target: [head("service"), head("honors")],
+          grow: { top: 20, right: 640, bottom: 110, left: 30 },
+          context: SPREAD,
+          legible: 0.35,
+        },
+        cues: [
+          { do: "mark", target: head("service"), kind: "strike", after: "camera" },
+          { do: "mark", target: head("honors"), kind: "strike" },
+        ],
+        hold: 700,
+      },
+      {
+        // ... and the rewrite folds two pages into one. (A rect: the step changes the page.)
+        shot: { target: PAGE_1, context: SPREAD, legible: 0.35 },
+        cues: [
+          {
+            do: "resume",
+            id: "resume",
+            state: "granary",
+            highlight: ["headline", "w-birds", "w-mentor"],
+            clear: true,
+            after: "camera",
+          },
+        ],
+        hold: 600,
+      },
+      {
+        // One page: the bullet that matters most moved up.
+        shot: {
+          target: [SUNBEAM, bullet("w-mentor"), UP_NOTE],
+          grow: { top: 16, bottom: 16, left: 16 },
+          context: ["resume", "duna", UP_NOTE],
+          legible: 0.6,
+          // A phone held upright can't read the lines anyway: it keeps the note in view.
+          portrait: {
+            target: [SUNBEAM, bullet("w-mentor"), UP_NOTE],
+            grow: { top: 140, right: 12, left: 12, bottom: 30 },
+          },
+        },
+        cues: [
+          { do: "mark", target: bullet("w-birds"), kind: "circle", text: true, pad: 2 },
+          {
+            do: "note",
+            id: "up",
+            text: "moved up!",
+            at: { x: UP_NOTE.x, y: UP_NOTE.y },
+            size: 56,
+            rotate: -4,
+          },
+          {
+            do: "mark",
+            target: bullet("w-birds"),
+            kind: "arrow",
+            on: "world",
+            from: { note: "up" },
+            grow: 10,
+            ink: "desk",
+          },
+        ],
+        hold: 2400,
+      },
+    ],
+  },
+  {
+    id: "ship",
+    name: "Shipped",
+    caption: "One page. *Tagged*. Sent.",
+    transcript: [
+      "One page. The replica gives way to the real PDF, built by CI from this commit.",
+      "Nangnang, a brown tabby, stamps the git tag submitted/2026-09-granary-senior-mouser with her paw: checking out the tag and building it gives back exactly what was sent.",
+    ],
+    steps: [
+      {
+        // The real PDF, from this commit.
+        shot: {
+          target: [{ x: 0, y: 0, w: 816, h: 330 }, REAL_NOTE],
+          grow: { top: 30, bottom: 30 },
+          context: ["resume", REAL_NOTE],
+          legible: 0.45,
+          portrait: { target: "resume", grow: { top: 160 } },
+        },
+        cues: [
+          {
+            do: "enter",
+            id: "resume",
+            kind: "resume",
+            at: RESUME_1,
+            props: { state: "granary" },
+            wait: false,
+          },
+          {
+            do: "enter",
+            id: "duna",
+            kind: "cat",
+            at: DUNA_L,
+            props: { name: "duna" },
+            wait: false,
+          },
+          { do: "proof", id: "resume", show: true, after: "camera" },
+          {
+            do: "note",
+            id: "real",
+            text: "the real PDF,\nfrom this commit",
+            at: { x: REAL_NOTE.x, y: REAL_NOTE.y },
+            size: 64,
+            rotate: -3,
+          },
+          {
+            do: "mark",
+            target: { x: 40, y: 60, w: 300, h: 80 },
+            kind: "arrow",
+            on: "world",
+            from: { note: "real" },
+            ink: "desk",
+          },
+        ],
+        hold: 1400,
+      },
+      {
+        // Nangnang stamps the tag.
+        shot: {
+          target: [STAMP_AREA, NANGNANG],
+          grow: { top: 20, left: 20 },
+          context: ["resume", NANGNANG],
+          legible: 0.45,
+          portrait: { target: STAMP_AREA, grow: { top: 300, bottom: 30, left: 10, right: 60 } },
+        },
+        cues: [
+          {
+            do: "enter",
+            id: "paws-7",
+            kind: "paws",
+            at: { z: 0 },
+            props: { from: { x: 1500, y: 1110 }, to: { x: 1000, y: 1080 } },
+            wait: false,
+          },
+          {
+            do: "enter",
+            id: "nangnang",
+            kind: "cat",
+            at: NANGNANG,
+            from: { dx: 420, dy: -30, o: 0 },
+            props: { name: "nangnang" },
+          },
+          { do: "pose", id: "nangnang", pose: "wave", wait: false },
+          {
+            do: "stamp",
+            id: "tag",
+            at: STAMP_AT,
+            text: ["submitted/", "2026-09-granary-senior-mouser"],
+            jolt: "resume",
+            delay: 500,
+          },
+          { do: "pose", id: "nangnang", pose: "blink", wait: false },
+        ],
+        hold: 2600,
+      },
+    ],
+  },
+  {
+    id: "update",
+    name: "The update",
+    caption: "She got the *job*. 🎉",
+    transcript: [
+      "Duna types /update-resume Got the job: Senior Mouser at Granary & Sons. Claude asks before it writes any date: What is the start date (YYYY-MM) and location, and when did your Sunbeam role end?",
+      "She answers: 2026-11, the grain warehouse; Sunbeam ended 2026-10. First bullet: patrols 40 tons of grain on night shifts. A pen note: asks, never guesses.",
+      "Claude updates common/facts/roles.tex and canonical/resume.tex, and the new role, Senior Mouser at Granary & Sons, Nov 2026 – Present, lands on top of her experience. Dudu, a gray cat, cheers; confetti falls; Duna jumps for joy.",
+    ],
+    steps: [
+      {
+        // A new session: the card comes in beside Duna.
+        shot: {
+          target: { x: -2060, y: -60, w: 2000, h: 940 },
+          portrait: { x: -2060, y: -60, w: 760, h: 1380 },
+        },
+        cues: [
+          {
+            do: "enter",
+            id: "resume",
+            kind: "resume",
+            at: RESUME,
+            props: { state: "canonical" },
+            wait: false,
+          },
+          {
+            do: "enter",
+            id: "duna",
+            kind: "cat",
+            at: DUNA_L,
+            props: { name: "duna" },
+            wait: false,
+          },
+          {
+            do: "enter",
+            id: "term",
+            kind: "terminal",
+            at: TERM_B,
+            from: { dy: 90, o: 0 },
+            props: { lines: HELLO },
+          },
+        ],
+        hold: 300,
+      },
+      {
+        // Zoom on the prompt, then on Claude's question.
+        shot: {
+          target: INPUT_A,
+          grow: { top: 200, bottom: 150 },
+          context: "duna",
+          legible: 0.62,
+        },
+        cues: [
+          { do: "pose", id: "duna", pose: "tap", wait: false },
+          { do: "terminal", id: "term", lines: UPDATE_ASK },
+          { do: "pose", id: "duna", pose: "sit", wait: false },
+          {
+            do: "note",
+            id: "asks",
+            text: "asks, never guesses",
+            at: INPUT_A,
+            side: "below",
+            gap: 34,
+            size: 64,
+            rotate: -2,
+          },
+        ],
+        hold: 1400,
+      },
+      {
+        // Her answer.
+        cues: [
+          { do: "pose", id: "duna", pose: "tap", wait: false },
+          { do: "terminal", id: "term", lines: UPDATE_ANSWER },
+          { do: "pose", id: "duna", pose: "sit", wait: false },
+        ],
+        hold: 1000,
+      },
+      {
+        shot: {
+          target: INPUT_A,
+          grow: { top: 330, bottom: 20 },
+          context: ["term", "duna"],
+          legible: 0.5,
+        },
+        cues: [{ do: "terminal", id: "term", lines: UPDATE_WRITE }],
+        hold: 1200,
+      },
+      {
+        // The new role lands on top of the spine, under the Experience heading (the shot names
+        // the heading: the role isn't there yet when the step starts).
+        shot: {
+          target: head("experience"),
+          grow: { top: 20, bottom: 100, left: 20, right: 640 },
+          context: "duna",
+          legible: 1.1,
+          portrait: {
+            target: head("experience"),
+            grow: { top: 20, bottom: 100, left: 20, right: 300 },
+          },
+        },
+        cues: [
+          {
+            do: "resume",
+            id: "resume",
+            state: "updated",
+            highlight: ["granary", "g-patrol"],
+            after: "camera",
+          },
+          { do: "mark", target: NEW_ROLE_TITLE, kind: "underline", grow: { bottom: -4 } },
+        ],
+        hold: 1200,
+      },
+      {
+        // She got the job: the terminal's work is done; Dudu cheers.
+        shot: {
+          target: [NEW_ROLE, DUNA_L, DUDU],
+          grow: { top: 60, right: 20 },
+          portrait: { target: [DUNA_L, DUDU, NEW_ROLE_NODE], grow: { top: 80, right: 120 } },
+        },
+        cues: [
+          { do: "exit", id: "term", to: { dy: 80, o: 0 }, wait: false },
+          {
+            do: "enter",
+            id: "dudu",
+            kind: "cat",
+            at: DUDU,
+            from: { dx: -360, dy: -20, o: 0 },
+            props: { name: "dudu" },
+            wait: false,
+          },
+          { do: "confetti", at: { x: -760, y: -120, w: 1560, h: 900 }, wait: false, delay: 300 },
+          { do: "pose", id: "duna", pose: "jump", wait: false, delay: 200 },
+          { do: "pose", id: "dudu", pose: "wave", wait: false, delay: 600 },
+        ],
+        hold: 2400,
+      },
+    ],
+  },
+  {
+    id: "cta",
+    name: "Make it yours",
+    caption: "Make it *yours*.",
+    transcript: [
+      "Use this template on GitHub to start your own: free, MIT licensed, no cats required. Duna waves goodbye.",
+    ],
+    steps: [
+      {
+        // Wide on the whole desk; a phone keeps to Duna and the note.
+        shot: {
+          target: { x: -1060, y: 400, w: 980, h: 450 },
+          context: { x: -1060, y: -60, w: 2780, h: 1170 },
+          legible: 0.3,
+        },
+        cues: [
+          {
+            do: "enter",
+            id: "resume",
+            kind: "resume",
+            at: RESUME,
+            props: { state: "updated" },
+            wait: false,
+          },
+          {
+            do: "enter",
+            id: "duna",
+            kind: "cat",
+            at: DUNA_L,
+            props: { name: "duna", pose: "wave" },
+            wait: false,
+          },
+          {
+            do: "cta",
+            links: [
+              {
+                text: "Use this template",
+                href: "https://github.com/h1994st/my-resume/generate",
+                primary: true,
+              },
+              { text: "GitHub", href: "https://github.com/h1994st/my-resume" },
+            ],
+            wait: false,
+            delay: 300,
+          },
+          {
+            do: "note",
+            id: "free",
+            text: "free, MIT,\nno cats required 🐾",
+            at: { x: -1040, y: 520 },
+            size: 68,
+            rotate: -3,
+            delay: 400,
+          },
+        ],
+        hold: 3000,
       },
     ],
   },
