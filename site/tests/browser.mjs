@@ -307,6 +307,23 @@ class Page {
     return file;
   }
 
+  // A screenshot of one element's whole box, beyond the viewport if need be.
+  async screenshotOf(selector, name) {
+    const clip = await this.eval((sel) => {
+      const r = document.querySelector(sel).getBoundingClientRect();
+      return { x: r.left + scrollX, y: r.top + scrollY, width: r.width, height: r.height };
+    }, selector);
+    mkdirSync(SHOTS, { recursive: true });
+    const { data } = await this.send("Page.captureScreenshot", {
+      format: "png",
+      captureBeyondViewport: true,
+      clip: { ...clip, scale: 1 },
+    });
+    const file = path.join(SHOTS, `${name}.png`);
+    writeFileSync(file, Buffer.from(data, "base64"));
+    return file;
+  }
+
   async close() {
     this.off();
     await this.cdp.send("Target.closeTarget", { targetId: this.targetId }).catch(() => {});
@@ -622,30 +639,331 @@ test("the terminal stays scrolled to its last line after every jump", async ({ n
   }
 });
 
-test("screenshots: end state of every act", async ({ newPage }) => {
-  for (const [width, height] of [
-    [1280, 720],
-    [1920, 1080],
-    [390, 844],
-  ]) {
-    const page = await newPage({ width, height, mobile: width < 800, deviceScaleFactor: 1 });
-    await page.goto("/");
-    for (let act = 1; act <= 5; act++) {
-      await page.eval(async (n) => {
-        const { ACTS } = await import("./acts.js");
-        const end = ACTS.slice(0, n).reduce((sum, a) => sum + a.steps.length, 0) - 1;
-        window.__demo.player.pause();
-        window.__demo.player.goTo(end);
-      }, act);
-      await page.frames(2);
-      await sleep(400); // highlight transitions
-      await page.screenshot(`act-${act}-${width}x${height}`);
+// --- Tests: layout and sections --------------------------------------------------------------
+
+const SIZES = [
+  [390, 844],
+  [1280, 720],
+  [1920, 1080],
+  [2560, 1440],
+];
+
+// Goes to the end state of act n (paused).
+const endOfAct = (page, n) =>
+  page.eval(async (act) => {
+    const { ACTS } = await import("./acts.js");
+    const end = ACTS.slice(0, act).reduce((sum, a) => sum + a.steps.length, 0) - 1;
+    window.__demo.player.pause();
+    window.__demo.player.goTo(end);
+  }, n);
+
+// Geometry of the stage at the top of the page.
+const layout = (page) =>
+  page.eval(() => {
+    scrollTo(0, 0);
+    const rect = (sel) => document.querySelector(sel).getBoundingClientRect().toJSON();
+    const term = document.querySelector("#term");
+    const probe = document.createElement("span");
+    probe.textContent = "0".repeat(20);
+    probe.style.cssText = "position:absolute;visibility:hidden;white-space:pre";
+    term.append(probe);
+    const ch = probe.getBoundingClientRect().width / 20;
+    probe.remove();
+    const col = document.getElementById("page-col");
+    const cs = getComputedStyle(col);
+    const box = document.getElementById("page-box");
+    const shown = [...document.querySelectorAll(".resume .r-sheet:not(.r-ghost)")].map((s) =>
+      s.getBoundingClientRect().toJSON(),
+    );
+    return {
+      vw: innerWidth,
+      vh: innerHeight,
+      scrollWidth: document.documentElement.scrollWidth,
+      stacked: matchMedia("(max-width: 799px)").matches,
+      pages: window.__demo.resume.pageCount(),
+      scale: parseFloat(getComputedStyle(box).getPropertyValue("--s")),
+      stage: rect("#stage"),
+      col: rect("#page-col"),
+      colInner: {
+        left: col.getBoundingClientRect().left + parseFloat(cs.paddingLeft),
+        right: col.getBoundingClientRect().right - parseFloat(cs.paddingRight),
+        top: col.getBoundingClientRect().top + parseFloat(cs.paddingTop),
+        bottom: col.getBoundingClientRect().bottom - parseFloat(cs.paddingBottom),
+      },
+      box: rect("#page-box"),
+      sheets: shown,
+      term: rect("#term"),
+      termCols: term.clientWidth / ch,
+      ctl: rect(".ctl"),
+      indicator: (() => {
+        const el = document.querySelector(".page-switch");
+        return el && getComputedStyle(el).display !== "none"
+          ? el.getBoundingClientRect().toJSON()
+          : null;
+      })(),
+    };
+  });
+
+function checkLayout(m, label) {
+  const near = (a, b, tol = 1.5) => Math.abs(a - b) <= tol;
+  assert.ok(m.scrollWidth <= m.vw, `${label}: horizontal scroll (${m.scrollWidth} > ${m.vw})`);
+  // The page box (what is shown of the spread) sits inside its column.
+  assert.ok(
+    m.box.left >= m.colInner.left - 1 && m.box.right <= m.colInner.right + 1,
+    `${label}: page box ${m.box.left}–${m.box.right} outside column ${m.colInner.left}–${m.colInner.right}`,
+  );
+  assert.ok(m.box.bottom <= m.colInner.bottom + 1, `${label}: page box overflows its column`);
+  // Controls are within the viewport.
+  assert.ok(m.ctl.top >= 0 && m.ctl.bottom <= m.vh + 0.5, `${label}: controls off screen`);
+  assert.ok(m.ctl.left >= 0 && m.ctl.right <= m.vw + 0.5, `${label}: controls too wide`);
+  if (m.stacked) {
+    // One page at a time, at the viewport's width less a 16px gutter on each side.
+    assert.ok(near(m.box.width, m.vw - 32, 2), `${label}: page ${m.box.width}px wide on a phone`);
+    const inBox = m.sheets.filter((s) => s.left >= m.box.left - 1 && s.right <= m.box.right + 1);
+    assert.equal(inBox.length, 1, `${label}: one page shown`);
+    assert.equal(Boolean(m.indicator), m.pages > 1, `${label}: page switch shown iff 2 pages`);
+    // The whole demo fits one screen: the terminal ends above the fixed controls.
+    assert.ok(
+      m.term.bottom <= m.ctl.top + 1,
+      `${label}: terminal hidden under the controls (${m.term.bottom} > ${m.ctl.top}; ${JSON.stringify({ col: m.col, term: m.term, ctl: m.ctl })})`,
+    );
+    assert.ok(m.term.height >= 200, `${label}: terminal only ${m.term.height}px tall`);
+  } else {
+    // Every page of the spread is visible inside the column.
+    for (const s of m.sheets) {
       assert.ok(
-        await page.eval(() => document.documentElement.scrollWidth <= innerWidth),
-        `no horizontal scroll at ${width}×${height}`,
+        s.left >= m.colInner.left - 1 && s.right <= m.colInner.right + 1,
+        `${label}: a page sticks out of its column`,
+      );
+    }
+    // The stage fills the window below the title line.
+    assert.ok(near(m.stage.bottom, m.vh), `${label}: stage ends at ${m.stage.bottom}, not ${m.vh}`);
+    // Both halves read well: a terminal of at least 56 columns, a page at least 0.4 scale, and a
+    // single page as tall as its column.
+    assert.ok(m.termCols >= 56, `${label}: terminal only ${m.termCols.toFixed(1)} columns`);
+    assert.ok(m.scale >= 0.4, `${label}: page scale ${m.scale.toFixed(3)}`);
+    if (m.pages === 1) {
+      assert.ok(
+        near(m.box.height, m.colInner.bottom - m.colInner.top, 2),
+        `${label}: one page ${m.box.height}px tall in a ${m.colInner.bottom - m.colInner.top}px column`,
       );
     }
   }
+}
+
+test("layout: every act end at every size, with screenshots", async ({ newPage }) => {
+  const problems = [];
+  for (const [width, height] of SIZES) {
+    const page = await newPage({ width, height, mobile: width < 800, deviceScaleFactor: 1 });
+    await page.goto("/");
+    for (let act = 1; act <= 5; act++) {
+      await endOfAct(page, act);
+      await page.frames(2);
+      await sleep(400); // highlight transitions
+      await page.screenshot(`act-${act}-${width}x${height}`);
+      try {
+        checkLayout(await layout(page), `act ${act} at ${width}×${height}`);
+      } catch (err) {
+        problems.push(err.message.split("\n")[0]);
+      }
+    }
+    await page.close();
+  }
+  assert.deepEqual(problems, []);
+});
+
+test("phone: one page at a time, with a page switch", async ({ newPage }) => {
+  const page = await newPage({ width: 390, height: 844, mobile: true, deviceScaleFactor: 2 });
+  await page.goto("/");
+  await endOfAct(page, 1);
+  await page.frames(2);
+  const second = () =>
+    page.eval(() => {
+      const box = document.getElementById("page-box").getBoundingClientRect();
+      const sheet = document.querySelectorAll(".resume .r-sheet")[1].getBoundingClientRect();
+      return Math.abs(sheet.left - box.left) < 2;
+    });
+  assert.equal(await second(), false, "page 1 shown first");
+  await page.eval(() => document.querySelector('.page-switch [data-page="2"]').click());
+  await sleep(500);
+  assert.equal(await second(), true, "page 2 shown after the switch");
+  assert.equal(
+    await page.eval(() =>
+      document.querySelector('.page-switch [data-page="2"]').getAttribute("aria-pressed"),
+    ),
+    "true",
+  );
+  // Back to one page: no switch; to two pages again: page 1 first.
+  await endOfAct(page, 2);
+  await page.frames(2);
+  assert.equal(
+    await page.eval(() => getComputedStyle(document.querySelector(".page-switch")).display),
+    "none",
+  );
+  await endOfAct(page, 5);
+  await page.frames(2);
+  await sleep(500);
+  assert.equal(await second(), false, "a new two-page state starts on page 1");
+  assert.equal(
+    await page.eval(() => window.__demo.player.step),
+    await page.eval(() => window.__demo.player.stepCount - 1),
+  );
+  checkLayout(await layout(page), "phone, act 5");
+});
+
+test("two pages to one zooms the page in (and jumps under reduced motion)", async ({ newPage }) => {
+  for (const media of [undefined, REDUCED]) {
+    const page = await newPage({ width: 1280, height: 720, media });
+    await page.goto("/");
+    await endOfAct(page, 1);
+    await page.frames(2);
+    const samples = await page.eval(
+      () =>
+        new Promise((resolve) => {
+          const box = document.getElementById("page-box");
+          const out = [box.getBoundingClientRect().height];
+          window.__demo.resume.render("granary", { animate: true });
+          const t0 = performance.now();
+          const tick = () => {
+            out.push(box.getBoundingClientRect().height);
+            if (performance.now() - t0 < 1500) requestAnimationFrame(tick);
+            else resolve(out);
+          };
+          requestAnimationFrame(tick);
+        }),
+    );
+    const [from, to] = [samples[0], samples.at(-1)];
+    assert.ok(to > from + 20, `one page is bigger than two (${from} → ${to})`);
+    const between = samples.filter((h) => h > from + 5 && h < to - 5).length;
+    if (media) assert.equal(between, 0, "reduced motion: no zoom frames");
+    else assert.ok(between >= 5, `zoom is animated (${between} frames in between)`);
+    await page.close();
+  }
+});
+
+test("the template and get-started sections", async ({ newPage }) => {
+  const readme = readFileSync(path.join(REPO, "README.md"), "utf8");
+  const quick = readme
+    .slice(readme.indexOf("Quick start"))
+    .match(/```bash\n([\s\S]*?)\n```/)[1]
+    .split("\n");
+  for (const [width, height] of SIZES) {
+    const page = await newPage({ width, height, mobile: width < 800, deviceScaleFactor: 1 });
+    await page.goto("/");
+    await page.eval(() => window.__demo.player.pause());
+    const got = await page.eval(() => {
+      const t = document.getElementById("template");
+      const g = document.getElementById("get-started");
+      return {
+        figures: [...t.querySelectorAll("a > img")].map((img) => ({
+          src: img.getAttribute("src"),
+          href: img.parentElement.getAttribute("href"),
+          loaded: img.complete && img.naturalWidth > 0,
+        })),
+        items: t.querySelectorAll("ol > li").length,
+        text: t.textContent.replace(/\s+/g, " "),
+        commands: g.querySelector("pre").textContent.replace(/\n$/, "").split("\n"),
+        links: [...g.querySelectorAll("a")].map((a) => a.getAttribute("href")),
+        footer: document.querySelector("footer").textContent,
+        scrollWidth: document.documentElement.scrollWidth,
+      };
+    });
+    assert.deepEqual(
+      got.figures.map((f) => [f.src, f.href]),
+      [
+        ["img/canonical-1.png", "pdf/canonical.pdf"],
+        ["img/canonical-2.png", "pdf/canonical.pdf"],
+        ["img/tailored-1.png", "pdf/tailored.pdf"],
+      ],
+    );
+    assert.ok(
+      got.figures.every((f) => f.loaded),
+      "page images load",
+    );
+    assert.equal(got.items, 6, "six things to notice");
+    assert.match(got.text, /Package resume Error: Unknown role key 'windowsil'\./);
+    assert.match(got.text, /\\defrole\{windowsill\}/);
+    assert.match(got.text, /\\begin\{role\}\{windowsill\}/);
+    assert.match(got.text, /51 page positions/);
+    assert.deepEqual(got.commands, quick, "the README's quick start");
+    for (const href of [
+      "https://github.com/h1994st/my-resume",
+      "https://github.com/h1994st/my-resume/blob/main/CLAUDE.md",
+      "https://github.com/h1994st/my-resume/blob/main/.claude/skills/customize-resume/SKILL.md",
+      "https://github.com/h1994st/my-resume/blob/main/.claude/skills/update-resume/SKILL.md",
+    ]) {
+      assert.ok(got.links.includes(href), `link to ${href}`);
+    }
+    assert.match(got.footer, /MIT/);
+    assert.match(got.footer, /Open Font License/);
+    assert.match(got.footer, /Duna Feline is fictional\./);
+    assert.ok(got.scrollWidth <= width, `no horizontal scroll at ${width}×${height}`);
+    await page.screenshotOf("#template", `template-${width}x${height}`);
+    await page.screenshotOf("#get-started", `get-started-${width}x${height}`);
+    await page.screenshotOf(".site-foot", `footer-${width}x${height}`);
+    await page.close();
+  }
+});
+
+test("head: title, description, theme colour, Open Graph image, favicon", async ({ newPage }) => {
+  const page = await newPage();
+  await page.goto("/");
+  const head = await page.eval(() => ({
+    title: document.title,
+    description: document.querySelector('meta[name="description"]')?.content,
+    theme: document.querySelector('meta[name="theme-color"]')?.content,
+    og: document.querySelector('meta[property="og:image"]')?.content,
+    icon: document.querySelector('link[rel="icon"]')?.getAttribute("href"),
+  }));
+  assert.equal(head.title, "my-resume");
+  assert.ok(head.description?.length > 20, "a description");
+  assert.ok(head.theme, "a theme colour");
+  assert.equal(head.og, "img/canonical-1.png");
+  assert.match(head.icon ?? "", /^data:image\/svg\+xml,/);
+});
+
+// --- Tests: player gates ---------------------------------------------------------------------
+
+test("autoplay starts when a stage taller than two viewports fills the screen", async ({
+  newPage,
+}) => {
+  // Phone landscape: the stacked stage is far taller than the viewport.
+  const page = await newPage({ width: 740, height: 320, mobile: true, deviceScaleFactor: 2 });
+  await page.goto("/");
+  const ratio = await page.eval(() => {
+    const r = document.getElementById("stage").getBoundingClientRect();
+    return r.height / innerHeight;
+  });
+  assert.ok(ratio > 2, `the stage is ${ratio.toFixed(2)}× the viewport (test premise)`);
+  await page.waitFor(() => window.__demo.player.playing, { timeout: 5000 });
+});
+
+test("a swipe on the control bar does not step the demo", async ({ newPage }) => {
+  const page = await newPage({ width: 390, height: 844, mobile: true, deviceScaleFactor: 2 });
+  await page.goto("/");
+  await page.eval(() => window.__demo.player.goToAct(2));
+  const before = await page.eval(() => window.__demo.player.step);
+  const row = await page.eval(() => {
+    const r = document.querySelector(".ctl-acts").getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  });
+  await page.swipe(row.x + 80, row.y, row.x - 80, row.y);
+  assert.equal(await page.eval(() => window.__demo.player.step), before, "chip row swipe left");
+  await page.swipe(row.x - 80, row.y, row.x + 80, row.y);
+  assert.equal(await page.eval(() => window.__demo.player.step), before, "chip row swipe right");
+  const bar = await page.eval(() => {
+    const r = document.querySelector(".ctl-buttons").getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  });
+  await page.swipe(bar.x + 60, bar.y, bar.x - 60, bar.y);
+  assert.equal(await page.eval(() => window.__demo.player.step), before, "button row swipe");
+  // Control: a swipe on the terminal still steps.
+  const term = await page.eval(() => {
+    const r = document.getElementById("term").getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + Math.min(r.height / 2, 100) };
+  });
+  await page.swipe(term.x + 80, term.y, term.x - 80, term.y);
+  assert.equal(await page.eval(() => window.__demo.player.step), before + 1, "terminal swipe");
 });
 
 await main();

@@ -14,9 +14,10 @@
 //
 // `stage` (optional) gets data-act / data-proof attributes and an is-playing class for the CSS
 // (is-instant while a state is applied without transitions), hosts the keyboard and
-// swipe handling, and starts autoplay when it first comes into view. Keys (Space, ←/→, 1–5) are
-// handled only while the stage is at least half in view and focus is on the page body or inside
-// the stage. `controls` (optional) receives the control bar.
+// swipe handling, and starts autoplay when it first comes into view. "In view" means the visible
+// part covers half the viewport or half the stage. Keys (Space, ←/→, 1–5) are handled only while
+// the stage is in view and focus is on the page body or inside the stage. Swipes that start on
+// `controls` (optional; it receives the control bar) or on [data-no-swipe] don't step.
 //
 // onEvent(name, params): "interact" {method: play|step|act_chip|key|swipe} on each user action,
 // "act" {act, act_name} each time an act is entered, "complete" {method: autoplay|manual} when the
@@ -302,23 +303,34 @@ export function createPlayer({
 
   // --- Stage: visibility, keys, swipe ----------------------------------------------------------
 
-  let inView = false;
+  // In view: the visible part of the stage covers half the viewport or is half of the stage (a
+  // stage taller than two viewports never shows half of itself).
+  const covers = (visible, height, viewport) =>
+    visible > 0 && visible >= 0.499 * Math.min(height, viewport);
+  const inView = () => {
+    const r = stage.getBoundingClientRect();
+    const visible = Math.min(r.bottom, innerHeight) - Math.max(r.top, 0);
+    return covers(visible, r.height, innerHeight);
+  };
   let seen = false;
   if (stage) {
     const io = new IntersectionObserver(
       ([entry]) => {
-        inView = entry.isIntersecting && entry.intersectionRatio >= 0.499;
-        if (inView && !seen) {
+        const viewport = entry.rootBounds?.height ?? innerHeight;
+        const shown =
+          entry.isIntersecting &&
+          covers(entry.intersectionRect.height, entry.boundingClientRect.height, viewport);
+        if (shown && !seen) {
           seen = true;
           if (!reduced.matches && !interacted && !playing) play();
         }
       },
-      { threshold: [0, 0.5, 1] },
+      { threshold: Array.from({ length: 21 }, (_, k) => k / 20) },
     );
     io.observe(stage);
 
     document.addEventListener("keydown", (e) => {
-      if (!inView || e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey) return;
+      if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || !inView()) return;
       const active = document.activeElement;
       if (active && active !== document.body && !stage.contains(active)) return;
       let action = null;
@@ -336,10 +348,15 @@ export function createPlayer({
       action();
     });
 
-    // Touch or pen only: a mouse drag on the terminal selects text.
+    // Touch or pen only: a mouse drag on the terminal selects text. Not on the control bar, whose
+    // chip row may scroll sideways, or on other controls marked data-no-swipe.
     let start = null;
     stage.addEventListener("pointerdown", (e) => {
-      start = e.pointerType === "mouse" ? null : { x: e.clientX, y: e.clientY, id: e.pointerId };
+      const onControls = controls?.contains(e.target) || e.target.closest?.("[data-no-swipe]");
+      start =
+        e.pointerType === "mouse" || onControls
+          ? null
+          : { x: e.clientX, y: e.clientY, id: e.pointerId };
     });
     stage.addEventListener("pointercancel", () => {
       start = null;

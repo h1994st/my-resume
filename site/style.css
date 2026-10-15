@@ -4,56 +4,56 @@
   src: url("fonts/SourceSerif4/SourceSerif4SmText-Regular.otf") format("opentype");
   font-weight: 400;
   font-style: normal;
-  font-display: block;
+  font-display: swap;
 }
 @font-face {
   font-family: "Source Serif 4 SmText";
   src: url("fonts/SourceSerif4/SourceSerif4SmText-It.otf") format("opentype");
   font-weight: 400;
   font-style: italic;
-  font-display: block;
+  font-display: swap;
 }
 @font-face {
   font-family: "Source Serif 4 SmText";
   src: url("fonts/SourceSerif4/SourceSerif4SmText-Semibold.otf") format("opentype");
   font-weight: 600;
   font-style: normal;
-  font-display: block;
+  font-display: swap;
 }
 @font-face {
   font-family: "Source Serif 4 SmText";
   src: url("fonts/SourceSerif4/SourceSerif4SmText-SemiboldIt.otf") format("opentype");
   font-weight: 600;
   font-style: italic;
-  font-display: block;
+  font-display: swap;
 }
 @font-face {
   font-family: "Source Sans 3";
   src: url("fonts/SourceSans3/SourceSans3-Regular.otf") format("opentype");
   font-weight: 400;
   font-style: normal;
-  font-display: block;
+  font-display: swap;
 }
 @font-face {
   font-family: "Source Sans 3";
   src: url("fonts/SourceSans3/SourceSans3-It.otf") format("opentype");
   font-weight: 400;
   font-style: italic;
-  font-display: block;
+  font-display: swap;
 }
 @font-face {
   font-family: "Source Sans 3";
   src: url("fonts/SourceSans3/SourceSans3-Semibold.otf") format("opentype");
   font-weight: 600;
   font-style: normal;
-  font-display: block;
+  font-display: swap;
 }
 @font-face {
   font-family: "Source Sans 3";
   src: url("fonts/SourceSans3/SourceSans3-SemiboldIt.otf") format("opentype");
   font-weight: 600;
   font-style: italic;
-  font-display: block;
+  font-display: swap;
 }
 
 /* ------------------------------------------------------------------------------------------
@@ -350,16 +350,38 @@
 }
 
 /* ------------------------------------------------------------------------------------------
-   Page and demo stage (site/main.js, player.js, terminal.js). Basic layout; Task 3 refines it.
-   Nothing below styles the replica's internals (.resume …).
+   Page layout, demo stage, and the sections below it (site/index.html, main.js, player.js).
+   Nothing here styles the replica's internals (.resume …).
    ------------------------------------------------------------------------------------------ */
+/* The stage's scale (--s), shown width (--sw, unscaled px), and phone page offset (--off,
+   unscaled px) are set by main.js; registered so a page-count change can zoom. */
+@property --s {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0.5;
+}
+@property --sw {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 816;
+}
+@property --off {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
+}
+
 :root {
   --accent: #374151;
   --tint: #e9eaec; /* accent 11% */
+  --spine: #c3c6cb; /* accent 30% */
   --ink: #222222;
   --muted: #5b6270;
+  --code-bg: #f5f6f7;
   --title-h: 48px;
+  --ctl-h: 60px; /* phone control bar */
   --ui: "Source Sans 3", "Helvetica Neue", Arial, sans-serif;
+  --serif: "Source Serif 4 SmText", Georgia, serif;
   --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
 }
 html {
@@ -370,6 +392,19 @@ body {
   background: #fff;
   color: var(--ink);
   font: 16px/1.5 var(--ui);
+}
+a {
+  color: var(--accent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+}
+a:hover {
+  text-decoration-thickness: 2px;
+}
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 2px;
 }
 
 .site-title {
@@ -385,7 +420,7 @@ body {
 }
 .site-title h1 {
   margin: 0;
-  font-size: 18px;
+  font-size: clamp(18px, 0.25vw + 14px, 21px);
   font-weight: 600;
 }
 .site-title p {
@@ -394,15 +429,18 @@ body {
   text-overflow: ellipsis;
   color: var(--muted);
 }
+.site-title code {
+  font: 0.9em var(--mono);
+}
 .site-title a {
   margin-left: auto;
-  color: var(--accent);
 }
 
-/* Stage: terminal | page, controls below. */
+/* Stage: terminal | page, controls below; fills the window under the title line. */
 .stage {
+  --term-min: 360px; /* main.js: at least 62 terminal columns */
   display: grid;
-  grid-template-columns: minmax(360px, 1fr) auto;
+  grid-template-columns: minmax(var(--term-min), 1fr) auto;
   grid-template-rows: minmax(0, 1fr) auto;
   grid-template-areas:
     "term page"
@@ -414,6 +452,7 @@ body {
   max-width: 2200px;
   margin: 0 auto;
   padding: 4px 16px 0;
+  overflow-x: clip; /* a page fading out while the spread zooms may overhang the edge */
   touch-action: pan-y; /* horizontal swipes step the demo */
 }
 .stage-term {
@@ -433,11 +472,20 @@ body {
 }
 .page-box {
   position: relative;
-  --s: 0.5;
+  width: calc(var(--sw) * var(--s) * 1px);
+  height: calc(1056px * var(--s));
+  /* 2 → 1 pages: the content settles onto page 1 first, then the page zooms in. */
+  transition:
+    --s 640ms 240ms cubic-bezier(0.4, 0, 0.2, 1),
+    --sw 640ms 240ms cubic-bezier(0.4, 0, 0.2, 1),
+    --off 320ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.stage.is-fitting .page-box {
+  transition: none;
 }
 .page-replica {
   width: max-content;
-  transform: scale(var(--s));
+  transform: scale(var(--s)) translateX(calc(var(--off) * -1px));
   transform-origin: 0 0;
 }
 
@@ -470,7 +518,7 @@ body {
   border-radius: 999px;
   background: var(--accent);
   color: #fff;
-  font: 600 14px/1.3 var(--ui);
+  font: 600 clamp(12px, 0.5vw + 8px, 15px) / 1.3 var(--ui);
   white-space: nowrap;
 }
 .stage[data-proof="tailored"] .proof[data-proof="tailored"] {
@@ -493,6 +541,51 @@ body {
 .stage[data-act="update"] .demo-tag {
   display: block;
 }
+@media (max-width: 799px) {
+  .demo-tag {
+    top: 3px;
+    left: 6px;
+    padding: 0 8px;
+    font-size: 11px;
+    line-height: 1.5;
+  }
+}
+
+/* Phone only: which of two pages is shown. */
+.page-switch {
+  display: none;
+  position: absolute;
+  left: 50%;
+  bottom: 2px;
+  transform: translateX(-50%);
+  gap: 2px;
+  padding: 2px;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 0 0 1px var(--tint);
+}
+.page-switch button {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--accent);
+  font: 600 14px/1 var(--ui);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.page-switch button::after {
+  content: "";
+  position: absolute;
+  inset: -8px; /* a 44px target */
+}
+.page-switch button[aria-pressed="true"] {
+  background: var(--accent);
+  color: #fff;
+}
 
 .stage.is-instant *,
 .stage.is-instant *::before {
@@ -506,7 +599,7 @@ body {
   align-items: center;
   gap: 8px 16px;
   padding: 10px 0 12px;
-  font: 15px/1.2 var(--ui);
+  font: clamp(15px, 0.2vw + 11px, 17px) / 1.2 var(--ui);
 }
 .ctl-buttons {
   display: flex;
@@ -571,9 +664,7 @@ body {
 .ctl-label {
   margin-left: auto;
   color: var(--muted);
-  font-size: 13px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-size: 14px;
 }
 .ctl-progress {
   position: absolute;
@@ -591,36 +682,56 @@ body {
   transition: width 400ms ease;
 }
 .ctl :focus-visible {
-  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
-/* Phone: page over terminal, controls fixed at the bottom. */
+/* Phone: one page over the terminal, controls stuck to the bottom while the stage is on screen.
+   The terminal takes what the page and controls leave of the screen (45dvh at most). */
 @media (max-width: 799px) {
   .site-title p {
     display: none;
   }
   .stage {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto 45dvh;
+    grid-template-rows: auto auto auto;
     grid-template-areas:
       "page"
-      "term";
+      "term"
+      "controls";
     row-gap: 12px;
     height: auto;
     min-height: 0;
-    padding-bottom: calc(76px + env(safe-area-inset-bottom));
+  }
+  .stage > .stage-term {
+    height: clamp(
+      200px,
+      calc(
+        100dvh - var(--title-h) - 4px - var(--page-h, 60dvh) - 24px - var(--ctl-h) -
+          env(safe-area-inset-bottom, 0px)
+      ),
+      45dvh
+    );
+  }
+  .stage-page {
+    display: block;
+  }
+  .page-box {
+    clip-path: inset(-24px -6px); /* hide the other page, keep the sheet's shadow below */
+  }
+  .stage[data-pages="2"] .page-switch {
+    display: flex;
   }
   .stage-controls {
-    position: fixed;
-    left: 0;
-    right: 0;
+    position: sticky;
     bottom: 0;
     z-index: 10;
+    margin: 0 -16px;
     padding: 0 8px env(safe-area-inset-bottom);
     background: #fff;
   }
   .ctl {
+    box-sizing: border-box;
+    height: var(--ctl-h);
     gap: 6px;
     padding: 8px 0;
   }
@@ -636,6 +747,8 @@ body {
   .ctl-acts {
     flex-wrap: nowrap;
     gap: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
   }
   .ctl-act {
     padding: 2px 8px;
@@ -648,6 +761,251 @@ body {
   }
   .ctl-label {
     display: none;
+  }
+}
+
+/* Sections below the stage: quiet, static, one reading column. */
+.sections {
+  box-sizing: border-box;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 0 16px;
+}
+.section {
+  padding-top: clamp(72px, 8vw, 136px);
+}
+.section h2 {
+  margin: 0 0 16px;
+  font: 600 clamp(28px, 1.2vw + 20px, 40px) / 1.15 var(--ui);
+  letter-spacing: -0.01em;
+}
+.lead,
+.prose,
+.tour p {
+  max-width: 64ch;
+  font-family: var(--serif);
+}
+.lead {
+  margin: 0 0 40px;
+  font-size: clamp(18px, 0.3vw + 15px, 21px);
+  line-height: 1.55;
+}
+.prose {
+  margin: 0 0 8px;
+  font-size: 18px;
+  line-height: 1.6;
+}
+code {
+  font-family: var(--mono);
+  font-size: 0.86em;
+}
+p code,
+.tour p code {
+  padding: 0.05em 0.3em;
+  border-radius: 3px;
+  background: var(--code-bg);
+  white-space: nowrap;
+}
+.pill {
+  padding: 0.05em 0.5em;
+  border-radius: 0.6em;
+  background: var(--tint);
+  font: 0.88em var(--ui);
+  white-space: nowrap;
+}
+pre {
+  margin: 16px 0 0;
+  padding: 14px 16px;
+  border-radius: 8px;
+  background: var(--code-bg);
+  font: 14px/1.6 var(--mono);
+  overflow-x: auto;
+}
+pre code {
+  font-size: inherit;
+}
+pre .c {
+  color: #6b7280;
+}
+
+/* The real pages: three across; a swipeable row on phones. */
+.sheets {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: clamp(16px, 2.5vw, 40px);
+  margin: 0 0 64px;
+}
+.sheets figure {
+  margin: 0;
+}
+.sheets a {
+  display: block;
+  border-radius: 2px;
+}
+.sheets img {
+  display: block;
+  width: 100%;
+  height: auto;
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 0.06),
+    0 6px 24px rgb(0 0 0 / 0.08);
+}
+.sheets figcaption {
+  margin-top: 14px;
+  color: var(--muted);
+  font-size: 15px;
+}
+
+/* What to notice: numbered rings on a spine, the template's own motif. */
+.tour {
+  margin: 24px 0 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: tour;
+}
+.tour > li {
+  position: relative;
+  padding: 0 0 40px 56px;
+  counter-increment: tour;
+}
+.tour > li::before {
+  content: "";
+  position: absolute;
+  left: 15px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--spine);
+}
+.tour > li:first-child::before {
+  top: 16px;
+}
+.tour > li:last-child {
+  padding-bottom: 0;
+}
+.tour > li:last-child::before {
+  bottom: auto;
+  height: 16px;
+}
+.tour > li::after {
+  content: counter(tour);
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: 32px;
+  height: 32px;
+  border: 2.5px solid var(--accent);
+  border-radius: 50%;
+  background: #fff;
+  color: var(--accent);
+  font: 600 15px/1 var(--ui);
+  font-variant-numeric: tabular-nums;
+}
+.tour h3 {
+  margin: 3px 0 6px;
+  font: 600 20px/1.3 var(--ui);
+}
+.tour p {
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.6;
+}
+.code-pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), max-content));
+  gap: 0 16px;
+}
+pre.error,
+.commands {
+  box-sizing: border-box;
+  width: fit-content;
+  max-width: 100%;
+}
+.commands {
+  margin-bottom: 28px;
+}
+.links {
+  display: grid;
+  gap: 18px;
+  max-width: 64ch;
+  margin: 32px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.links a {
+  font: 600 18px/1.4 var(--ui);
+}
+.links span {
+  display: block;
+  color: var(--muted);
+}
+
+.site-foot {
+  box-sizing: border-box;
+  max-width: 1120px;
+  margin: clamp(96px, 10vw, 160px) auto 0;
+  padding: 24px 16px max(40px, env(safe-area-inset-bottom));
+  color: var(--muted);
+  font-size: 14px;
+}
+.site-foot p {
+  margin: 0;
+  padding-top: 24px;
+  border-top: 1px solid var(--tint);
+}
+.site-foot a {
+  color: inherit;
+}
+
+@media (max-width: 799px) {
+  .sheets {
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: 78%;
+    margin: 0 -16px 48px;
+    padding: 8px 16px 24px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x mandatory;
+    scroll-padding: 0 16px;
+    scrollbar-width: none;
+  }
+  .sheets figure {
+    scroll-snap-align: start;
+  }
+  .tour > li {
+    padding-left: 44px;
+  }
+  .tour > li::before {
+    left: 13px;
+  }
+  .tour > li::after {
+    width: 28px;
+    height: 28px;
+    font-size: 14px;
+  }
+  .tour > li:first-child::before {
+    top: 14px;
+  }
+  .tour > li:last-child::before {
+    height: 14px;
+  }
+  pre {
+    font-size: 13px;
+  }
+  /* Short snippets wrap on a phone rather than hide their ends; the commands scroll. */
+  .tour pre {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-box {
+    transition: none;
   }
 }
 
@@ -673,7 +1031,7 @@ body {
   background: var(--t-bg);
   color: var(--t-fg);
   font-family: var(--mono);
-  font-size: clamp(12px, 0.45vw + 7px, 15px);
+  font-size: clamp(12px, 0.45vw + 7px, 16px);
   line-height: 1.5;
   overflow: hidden;
 }
@@ -681,6 +1039,7 @@ body {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  touch-action: pan-y; /* a scroll container: without this it takes horizontal swipes */
   overflow-anchor: none; /* terminal.js keeps it at the bottom; anchoring would fight that */
   scrollbar-width: thin;
   scrollbar-color: var(--t-line) transparent;
