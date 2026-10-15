@@ -808,6 +808,21 @@ a:hover {
   .stage[data-pages="2"] .page-switch {
     display: flex;
   }
+  /* The real PDF's caption goes in the strip above the page, out of the page's way and in view
+     (its bottom is below the column's fold). */
+  .stage[data-proof] .stage-page {
+    padding-top: calc(var(--tag-h) + 8px);
+  }
+  .proof figcaption {
+    bottom: calc(100% + 4px);
+    left: 0;
+    transform: none;
+    box-sizing: border-box;
+    height: var(--tag-h);
+    padding: 0 10px;
+    font-size: 12px;
+    line-height: var(--tag-h);
+  }
   /* Stays at the bottom of the column while the page scrolls under it. */
   .page-switch {
     position: sticky;

@@ -120,8 +120,9 @@ pageSwitch.addEventListener("click", (e) => {
 
 const refit = () => fit({ animate: !stage.classList.contains("is-instant") });
 resume.onPagesChange(refit);
-// Act 5 keeps a strip above the page free for its demo tag (style.css).
-new MutationObserver(refit).observe(stage, { attributeFilter: ["data-act"] });
+// Act 5 keeps a strip above the page free for its demo tag, and so does the real PDF in a short
+// landscape window, for its caption (style.css).
+new MutationObserver(refit).observe(stage, { attributeFilter: ["data-act", "data-proof"] });
 new ResizeObserver(() => fit()).observe(stage);
 stacked.addEventListener("change", () => fit());
 short.addEventListener("change", () => fit());

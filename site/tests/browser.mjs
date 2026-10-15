@@ -704,6 +704,15 @@ const layout = (page) =>
         bottom: col.getBoundingClientRect().bottom - parseFloat(cs.paddingBottom),
       },
       box: rect("#page-box"),
+      caption: (() => {
+        const which = document.getElementById("stage").dataset.proof;
+        return which
+          ? document
+              .querySelector(`.proof[data-proof="${which}"] figcaption`)
+              .getBoundingClientRect()
+              .toJSON()
+          : null;
+      })(),
       tag: (() => {
         const el = document.querySelector(".demo-tag");
         return getComputedStyle(el).display !== "none" ? el.getBoundingClientRect().toJSON() : null;
@@ -759,6 +768,16 @@ function checkLayout(m, label) {
       r.bottom <= m.ctlLabel.top ||
       r.top >= m.ctlLabel.bottom;
     assert.ok(apart, `${label}: "replay" label overlaps a control`);
+  }
+  // Act 3's "the real PDF" caption is in the visible part of the page column.
+  if (m.caption) {
+    assert.ok(
+      m.caption.top >= m.col.top - 0.5 &&
+        m.caption.bottom <= Math.min(m.col.bottom, m.vh) + 0.5 &&
+        m.caption.left >= m.col.left - 0.5 &&
+        m.caption.right <= m.col.right + 0.5,
+      `${label}: the real-PDF caption is out of sight`,
+    );
   }
   // Act 5's demo tag sits above the page, inside the column, never over resume content.
   if (m.tag) {
