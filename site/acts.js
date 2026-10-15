@@ -222,7 +222,10 @@ const update = [
       { t: "gap" },
       { t: "prompt", text: "/update-resume Got the job: Senior Mouser at Granary & Sons" },
       { t: "spin", text: "Purring", ms: 1000 },
-      { t: "say", text: "What is the start date (YYYY-MM), and the location?" },
+      {
+        t: "say",
+        text: "What is the start date (YYYY-MM) and location, and when did your Sunbeam role end?",
+      },
     ],
     resume: { state: "canonical" },
     hold: 1200,
@@ -231,7 +234,7 @@ const update = [
     lines: [
       {
         t: "prompt",
-        text: "2026-11, the grain warehouse; first bullet: patrols 40 tons of grain on night shifts",
+        text: "2026-11, the grain warehouse; Sunbeam ended 2026-10. First bullet: patrols 40 tons of grain on night shifts",
       },
       { t: "tool", name: "Update", arg: "common/facts/roles.tex" },
       { t: "result", text: "Updated common/facts/roles.tex with 7 additions and 1 removal" },
@@ -279,7 +282,7 @@ const update = [
       { t: "result", text: "Updated …/notes.md with 1 addition" },
       {
         t: "say",
-        text: "The submitted Granary snapshot is history; left untouched. It cites windowsill, so its notes.md records the new end date.",
+        text: "The submitted Granary snapshot is history: its resume.tex stays untouched. It cites windowsill, so its notes.md records the new end date.",
       },
     ],
     resume: { state: "updated" },
