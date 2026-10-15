@@ -663,7 +663,7 @@ a:hover {
 }
 .ctl-num {
   font-variant-numeric: tabular-nums;
-  opacity: 0.6;
+  opacity: 0.8; /* 5.7:1 on white, 5.0:1 on the hover tint */
 }
 .ctl-act[aria-current="step"] {
   background: var(--accent);
@@ -771,8 +771,13 @@ a:hover {
   .ctl-num {
     opacity: 1;
   }
+  /* No room in the bar: a small word in the gap above it, right-aligned with the terminal. */
   .ctl-label {
-    display: none;
+    position: absolute;
+    right: 8px;
+    bottom: calc(100% + 1px);
+    font-size: 11px;
+    line-height: 11px;
   }
 }
 

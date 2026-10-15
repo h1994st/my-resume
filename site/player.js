@@ -254,7 +254,7 @@ export function createPlayer({
         <ol class="ctl-acts">${acts
           .map(
             (act, a) =>
-              `<li><button type="button" class="ctl-act" data-act="${a + 1}" title="${act.title}"><span class="ctl-num">${a + 1}</span> <span class="ctl-name">${act.name}</span></button></li>`,
+              `<li><button type="button" class="ctl-act" data-act="${a + 1}" title="${act.title}" aria-label="Act ${a + 1}: ${act.name}"><span class="ctl-num">${a + 1}</span> <span class="ctl-name">${act.name}</span></button></li>`,
           )
           .join("")}</ol>
         <span class="ctl-label" title="A scripted replay of the workflow, not live output">replay</span>

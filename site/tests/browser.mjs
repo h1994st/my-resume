@@ -549,6 +549,13 @@ test("controls, swipe, and events", async ({ newPage }) => {
   assert.equal(await page.eval(() => window.__demo.player.step), four + 1, "left swipe: next");
   await page.swipe(box.x - 80, box.y, box.x + 80, box.y);
   assert.equal(await page.eval(() => window.__demo.player.step), four, "right swipe: prev");
+  // On a phone the chips show only their numbers; their names stay in the accessible name.
+  assert.deepEqual(
+    await page.eval(() =>
+      [...document.querySelectorAll(".ctl-act")].map((c) => c.getAttribute("aria-label")),
+    ),
+    ["Act 1: Facts", "Act 2: Tailor", "Act 3: Check", "Act 4: Submit", "Act 5: Update"],
+  );
   // Play button toggles.
   await page.eval(() => document.querySelector('[data-ctl="play"]').click());
   assert.equal(await page.eval(() => window.__demo.player.playing), true);
@@ -705,6 +712,13 @@ const layout = (page) =>
       term: rect("#term"),
       termCols: term.clientWidth / ch,
       ctl: rect(".ctl"),
+      ctlLabel: (() => {
+        const el = document.querySelector(".ctl-label");
+        return getComputedStyle(el).display !== "none" ? el.getBoundingClientRect().toJSON() : null;
+      })(),
+      ctlItems: [...document.querySelectorAll(".ctl-btn, .ctl-act")].map((el) =>
+        el.getBoundingClientRect().toJSON(),
+      ),
       indicator: (() => {
         const el = document.querySelector(".page-switch");
         return el && getComputedStyle(el).display !== "none"
@@ -728,6 +742,24 @@ function checkLayout(m, label) {
   // Controls are within the viewport.
   assert.ok(m.ctl.top >= 0 && m.ctl.bottom <= m.vh + 0.5, `${label}: controls off screen`);
   assert.ok(m.ctl.left >= 0 && m.ctl.right <= m.vw + 0.5, `${label}: controls too wide`);
+  // The "replay" label is on screen at every size, clear of the terminal and the controls.
+  assert.ok(m.ctlLabel && m.ctlLabel.width > 0, `${label}: no "replay" label`);
+  assert.ok(
+    m.ctlLabel.top >= m.term.bottom - 0.5 && m.ctlLabel.bottom <= m.vh + 0.5,
+    `${label}: "replay" label off screen or over the terminal`,
+  );
+  assert.ok(
+    m.ctlLabel.left >= 0 && m.ctlLabel.right <= m.vw + 0.5,
+    `${label}: "replay" label off screen`,
+  );
+  for (const r of m.ctlItems) {
+    const apart =
+      r.right <= m.ctlLabel.left ||
+      r.left >= m.ctlLabel.right ||
+      r.bottom <= m.ctlLabel.top ||
+      r.top >= m.ctlLabel.bottom;
+    assert.ok(apart, `${label}: "replay" label overlaps a control`);
+  }
   // Act 5's demo tag sits above the page, inside the column, never over resume content.
   if (m.tag) {
     assert.ok(m.tag.top >= m.col.top - 0.5, `${label}: demo tag above its column`);
