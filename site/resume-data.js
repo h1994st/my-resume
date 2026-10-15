@@ -295,7 +295,8 @@ const updated = structuredClone(canonical);
     org: "Granary & Sons",
     location: "Grain Warehouse",
     dates: "Nov 2026 – Present",
-    bullets: [],
+    // The template needs at least one \item per role.
+    bullets: [{ id: "g-patrol", text: "Patrols 40 tons of grain on night shifts" }],
   });
 }
 

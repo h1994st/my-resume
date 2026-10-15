@@ -2,87 +2,38 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>my-resume</title>
     <link rel="stylesheet" href="style.css" />
-    <style>
-      /* Development harness for the resume replica; Task 3 replaces this page. */
-      body {
-        margin: 0;
-        background: #f3f4f6;
-        font:
-          14px/1.4 system-ui,
-          sans-serif;
-      }
-      .harness-bar {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-        align-items: center;
-        padding: 10px 16px;
-      }
-      .harness-stage {
-        position: relative;
-        margin: 0 16px;
-      }
-      .harness-stage .resume {
-        transform-origin: 0 0;
-      }
-    </style>
+    <script type="module" src="main.js"></script>
   </head>
   <body>
-    <div class="harness-bar">
-      <button type="button" data-state="canonical">canonical</button>
-      <button type="button" data-state="granary">granary</button>
-      <button type="button" data-state="updated">updated</button>
-      <label><input type="checkbox" id="animate" checked /> animate</label>
-      <button type="button" id="hl">highlight w-birds</button>
-      <span id="info"></span>
-    </div>
-    <div class="harness-stage" id="stage"></div>
-    <script type="module">
-      import { createResume } from "./resume.js";
+    <header class="site-title">
+      <h1>my-resume</h1>
+      <p>A LaTeX resume you can <code>git diff</code>, tailored per job with Claude Code.</p>
+      <a href="https://github.com/h1994st/my-resume">GitHub</a>
+    </header>
 
-      const stage = document.getElementById("stage");
-      const info = document.getElementById("info");
-      const resume = createResume(stage);
-      const params = new URLSearchParams(location.search);
-      // ?bare hides the controls and gutters, so a screenshot starts at the first page's corner.
-      if (params.has("bare")) {
-        document.querySelector(".harness-bar").hidden = true;
-        stage.style.margin = "0";
-      }
-
-      function fit() {
-        const { width, height } = resume.spreadSize();
-        const bar = document.querySelector(".harness-bar").offsetHeight;
-        // ?scale=1 renders at a fixed scale (for screenshots against the PDF renders).
-        const s =
-          Number(params.get("scale")) ||
-          Math.min((innerWidth - 32) / width, (innerHeight - bar - 16) / height);
-        const el = stage.querySelector(".resume");
-        el.style.transform = `scale(${s})`;
-        stage.style.height = `${height * s}px`;
-        info.textContent = `${resume.pageCount()} page(s), spread ${width}×${height}`;
-      }
-      resume.onPagesChange(fit);
-      addEventListener("resize", fit);
-
-      for (const button of document.querySelectorAll("[data-state]")) {
-        button.addEventListener("click", () =>
-          resume.render(button.dataset.state, {
-            animate: document.getElementById("animate").checked,
-          }),
-        );
-      }
-      let on = false;
-      document.getElementById("hl").addEventListener("click", () => {
-        on = !on;
-        resume.highlight(on ? ["w-birds"] : []);
-      });
-
-      resume.render(params.get("state") ?? "canonical");
-      window.resume = resume;
-    </script>
+    <section class="stage" id="stage" aria-label="Workflow demo (a scripted replay)">
+      <div class="stage-term" id="term"></div>
+      <div class="stage-page" id="page-col">
+        <div class="page-box" id="page-box">
+          <div class="page-replica" id="resume-host"></div>
+          <figure class="proof" data-proof="tailored">
+            <img
+              src="img/tailored-1.png"
+              alt="The tailored resume's first page, as the real PDF renders it"
+              width="935"
+              height="1210"
+            />
+            <figcaption>The real PDF, built by CI from this commit</figcaption>
+          </figure>
+          <p class="demo-tag" title="The Granary role is not in the repo">
+            Demo step: this role is not in the repo
+          </p>
+        </div>
+      </div>
+      <div class="stage-controls" id="controls"></div>
+    </section>
   </body>
 </html>

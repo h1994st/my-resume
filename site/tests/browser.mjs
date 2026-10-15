@@ -1,0 +1,651 @@
+#!/usr/bin/env node
+// Browser tests for the site: headless Chrome driven over the DevTools protocol with Node's
+// built-ins only (global WebSocket, node:http, node:assert, node:child_process). No npm.
+//
+// Usage:  site/assemble.sh build/site .   (after `just build` and `just build applications/…`)
+//         node site/tests/browser.mjs [name-filter]
+// Env:    CHROME=<path to Chrome>  (default: the macOS app, else `google-chrome` on PATH)
+//         SITE_DIR=<dir to serve>  (default: build/site)
+// Screenshots go to build/site-shots/. Prints one line per test; exits 1 if any test fails.
+//
+// Adding a test: test("name", async ({ newPage }) => { const page = await newPage({ width, height,
+// media }); await page.goto("/"); assert.equal(await page.eval(() => 1 + 1), 2); }). Pages are
+// closed after the test, and an uncaught exception in any page fails the test.
+
+import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import http from "node:http";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+const SITE = path.resolve(process.env.SITE_DIR ?? path.join(REPO, "build/site"));
+const SHOTS = path.join(REPO, "build/site-shots");
+const MAC_CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+const TEST_TIMEOUT = 90_000;
+
+// --- Static server ---------------------------------------------------------------------------
+
+const TYPES = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".mjs": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".json": "application/json",
+  ".png": "image/png",
+  ".svg": "image/svg+xml",
+  ".otf": "font/otf",
+  ".pdf": "application/pdf",
+  ".md": "text/markdown; charset=utf-8",
+};
+
+function serve(root) {
+  const server = http.createServer((req, res) => {
+    const url = new URL(req.url, "http://localhost");
+    let file = path.join(root, decodeURIComponent(url.pathname));
+    if (!file.startsWith(root)) return res.writeHead(403).end();
+    if (existsSync(file) && statSync(file).isDirectory()) file = path.join(file, "index.html");
+    if (!existsSync(file)) return res.writeHead(404).end("not found");
+    res.writeHead(200, {
+      "content-type": TYPES[path.extname(file)] ?? "application/octet-stream",
+      "cache-control": "no-store",
+    });
+    res.end(readFileSync(file));
+  });
+  return new Promise((resolve) =>
+    server.listen(0, "127.0.0.1", () => resolve({ server, port: server.address().port })),
+  );
+}
+
+// --- Chrome and the DevTools protocol --------------------------------------------------------
+
+function chromePath() {
+  if (process.env.CHROME) return process.env.CHROME;
+  if (existsSync(MAC_CHROME)) return MAC_CHROME;
+  return "google-chrome";
+}
+
+function launchChrome() {
+  const profile = mkdtempSync(path.join(tmpdir(), "site-tests-"));
+  const proc = spawn(
+    chromePath(),
+    [
+      "--headless=new",
+      "--remote-debugging-port=0",
+      `--user-data-dir=${profile}`,
+      "--no-first-run",
+      "--no-default-browser-check",
+      "--disable-background-timer-throttling",
+      "--disable-renderer-backgrounding",
+      "--hide-scrollbars",
+      "about:blank",
+    ],
+    { stdio: ["ignore", "ignore", "pipe"] },
+  );
+  const exited = new Promise((resolve) => proc.once("exit", resolve));
+  const cleanup = async () => {
+    proc.kill();
+    await Promise.race([exited, sleep(3000)]);
+    try {
+      rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    } catch {
+      // A leftover temp profile is harmless.
+    }
+  };
+  const url = new Promise((resolve, reject) => {
+    let err = "";
+    proc.stderr.on("data", (chunk) => {
+      err += chunk;
+      const m = err.match(/DevTools listening on (ws:\/\/\S+)/);
+      if (m) resolve(m[1]);
+    });
+    proc.on("error", reject);
+    proc.on("exit", (code) => reject(new Error(`Chrome exited (${code}): ${err}`)));
+  });
+  return { url, cleanup };
+}
+
+class CDP {
+  constructor(ws) {
+    this.ws = ws;
+    this.seq = 0;
+    this.pending = new Map();
+    this.listeners = new Set();
+    ws.addEventListener("message", (e) => {
+      const msg = JSON.parse(e.data);
+      if (msg.id !== undefined) {
+        const p = this.pending.get(msg.id);
+        this.pending.delete(msg.id);
+        if (msg.error) p?.reject(new Error(`${p.method}: ${msg.error.message}`));
+        else p?.resolve(msg.result);
+      } else {
+        for (const fn of this.listeners) fn(msg);
+      }
+    });
+  }
+
+  static async connect(url) {
+    const ws = new WebSocket(url);
+    await new Promise((resolve, reject) => {
+      ws.addEventListener("open", resolve, { once: true });
+      ws.addEventListener("error", reject, { once: true });
+    });
+    return new CDP(ws);
+  }
+
+  send(method, params = {}, sessionId) {
+    const id = ++this.seq;
+    this.ws.send(JSON.stringify({ id, method, params, sessionId }));
+    return new Promise((resolve, reject) => this.pending.set(id, { resolve, reject, method }));
+  }
+
+  on(fn) {
+    this.listeners.add(fn);
+    return () => this.listeners.delete(fn);
+  }
+}
+
+// Key definitions for Input.dispatchKeyEvent (as Chrome expects them).
+const KEYS = {
+  " ": { key: " ", code: "Space", keyCode: 32, text: " " },
+  ArrowLeft: { key: "ArrowLeft", code: "ArrowLeft", keyCode: 37 },
+  ArrowRight: { key: "ArrowRight", code: "ArrowRight", keyCode: 39 },
+  ...Object.fromEntries(
+    "12345".split("").map((d) => [d, { key: d, code: `Digit${d}`, keyCode: 48 + +d, text: d }]),
+  ),
+};
+
+class Page {
+  constructor(cdp, sessionId, targetId, base) {
+    this.cdp = cdp;
+    this.sessionId = sessionId;
+    this.targetId = targetId;
+    this.base = base;
+    this.errors = [];
+    this.off = cdp.on((msg) => {
+      if (msg.sessionId !== sessionId) return;
+      if (msg.method === "Runtime.exceptionThrown") {
+        const d = msg.params.exceptionDetails;
+        this.errors.push(d.exception?.description ?? d.text);
+      }
+      for (const w of this.waiters) w(msg);
+    });
+    this.waiters = new Set();
+  }
+
+  send(method, params) {
+    return this.cdp.send(method, params, this.sessionId);
+  }
+
+  event(name, timeout = 15_000) {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.waiters.delete(w);
+        reject(new Error(`timed out waiting for ${name}`));
+      }, timeout);
+      const w = (msg) => {
+        if (msg.method !== name) return;
+        clearTimeout(timer);
+        this.waiters.delete(w);
+        resolve(msg.params);
+      };
+      this.waiters.add(w);
+    });
+  }
+
+  async viewport(width, height, { mobile = false, deviceScaleFactor = 1 } = {}) {
+    await this.send("Emulation.setDeviceMetricsOverride", {
+      width,
+      height,
+      deviceScaleFactor,
+      mobile,
+    });
+    if (mobile) await this.send("Emulation.setTouchEmulationEnabled", { enabled: true });
+  }
+
+  // media: [{ name: "prefers-reduced-motion", value: "reduce" }, ...]
+  media(features = []) {
+    return this.send("Emulation.setEmulatedMedia", { features });
+  }
+
+  // Navigates and waits for the load event, fonts, and the demo (window.__demo).
+  async goto(url = "/", { waitForDemo = true } = {}) {
+    const loaded = this.event("Page.loadEventFired");
+    await this.send("Page.navigate", { url: new URL(url, this.base).href });
+    await loaded;
+    await this.eval(() => document.fonts.ready.then(() => true));
+    if (waitForDemo) await this.waitFor(() => Boolean(window.__demo));
+  }
+
+  // Evaluates fn(...args) in the page (or a string expression); awaits promises; returns by value.
+  async eval(fn, ...args) {
+    const expression =
+      typeof fn === "function" ? `(${fn})(...${JSON.stringify(args)})` : String(fn);
+    const { result, exceptionDetails } = await this.send("Runtime.evaluate", {
+      expression,
+      awaitPromise: true,
+      returnByValue: true,
+      userGesture: true,
+    });
+    if (exceptionDetails) {
+      throw new Error(`page: ${exceptionDetails.exception?.description ?? exceptionDetails.text}`);
+    }
+    return result.value;
+  }
+
+  // Polls fn(...args) in the page until it returns a truthy value.
+  async waitFor(fn, { timeout = 10_000, args = [] } = {}) {
+    const start = Date.now();
+    for (;;) {
+      const value = await this.eval(fn, ...args);
+      if (value) return value;
+      if (Date.now() - start > timeout) throw new Error(`timed out waiting for ${fn}`);
+      await sleep(50);
+    }
+  }
+
+  // Waits n animation frames in the page.
+  frames(n = 2) {
+    return this.eval(
+      (count) =>
+        new Promise((resolve) => {
+          const tick = (left) => (left ? requestAnimationFrame(() => tick(left - 1)) : resolve(1));
+          tick(count);
+        }),
+      n,
+    );
+  }
+
+  // A real key press through Chrome's input pipeline (default actions such as scrolling apply).
+  async key(name) {
+    const k = KEYS[name];
+    if (!k) throw new Error(`no key definition for ${name}`);
+    const common = {
+      key: k.key,
+      code: k.code,
+      windowsVirtualKeyCode: k.keyCode,
+      nativeVirtualKeyCode: k.keyCode,
+    };
+    await this.send("Input.dispatchKeyEvent", {
+      type: k.text ? "keyDown" : "rawKeyDown",
+      text: k.text,
+      unmodifiedText: k.text,
+      ...common,
+    });
+    await this.send("Input.dispatchKeyEvent", { type: "keyUp", ...common });
+  }
+
+  // A touch swipe from (x0, y0) to (x1, y1) in CSS px.
+  async swipe(x0, y0, x1, y1, steps = 8) {
+    const point = (x, y) => [{ x, y, id: 1 }];
+    await this.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: point(x0, y0) });
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps;
+      await this.send("Input.dispatchTouchEvent", {
+        type: "touchMove",
+        touchPoints: point(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t),
+      });
+    }
+    await this.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  }
+
+  async screenshot(name) {
+    mkdirSync(SHOTS, { recursive: true });
+    const { data } = await this.send("Page.captureScreenshot", { format: "png" });
+    const file = path.join(SHOTS, `${name}.png`);
+    writeFileSync(file, Buffer.from(data, "base64"));
+    return file;
+  }
+
+  async close() {
+    this.off();
+    await this.cdp.send("Target.closeTarget", { targetId: this.targetId }).catch(() => {});
+  }
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// --- Registry and runner ---------------------------------------------------------------------
+
+const TESTS = [];
+function test(name, fn) {
+  TESTS.push({ name, fn });
+}
+
+async function main() {
+  if (!existsSync(path.join(SITE, "index.html"))) {
+    console.error(`no site at ${SITE}; run site/assemble.sh build/site . first`);
+    process.exit(2);
+  }
+  const filter = process.argv[2] ?? "";
+  const { server, port } = await serve(SITE);
+  const base = `http://127.0.0.1:${port}/`;
+  const chrome = launchChrome();
+  let failed = 0;
+  try {
+    const cdp = await CDP.connect(await chrome.url);
+    for (const { name, fn } of TESTS.filter((t) => t.name.includes(filter))) {
+      const pages = [];
+      const newPage = async ({
+        width = 1280,
+        height = 720,
+        mobile,
+        deviceScaleFactor,
+        media,
+      } = {}) => {
+        const { targetId } = await cdp.send("Target.createTarget", { url: "about:blank" });
+        const { sessionId } = await cdp.send("Target.attachToTarget", { targetId, flatten: true });
+        const page = new Page(cdp, sessionId, targetId, base);
+        pages.push(page);
+        await page.send("Page.enable");
+        await page.send("Runtime.enable");
+        await page.viewport(width, height, { mobile, deviceScaleFactor });
+        if (media) await page.media(media);
+        return page;
+      };
+      const start = Date.now();
+      try {
+        let timer;
+        await Promise.race([
+          fn({ newPage, base }),
+          new Promise((_, reject) => {
+            timer = setTimeout(() => reject(new Error("test timed out")), TEST_TIMEOUT);
+          }),
+        ]).finally(() => clearTimeout(timer));
+        for (const page of pages) {
+          assert.deepEqual(page.errors, [], "uncaught exceptions in the page");
+        }
+        console.log(`ok   ${name} (${Date.now() - start} ms)`);
+      } catch (err) {
+        failed++;
+        console.log(`FAIL ${name}: ${err.message.split("\n").join("\n     ")}`);
+      } finally {
+        for (const page of pages) await page.close();
+      }
+    }
+  } finally {
+    await chrome.cleanup();
+    server.close();
+  }
+  process.exit(failed ? 1 : 0);
+}
+
+// --- Helpers shared by the tests -------------------------------------------------------------
+
+const REDUCED = [{ name: "prefers-reduced-motion", value: "reduce" }];
+
+// The terminal's rendered blocks (text), and what the terminal renders instantly for the end state
+// of step i (built in a detached terminal from acts.js), for comparison.
+const termState = (page) =>
+  page.eval(() => {
+    const blocks = [...document.querySelectorAll("#term .t-log > .t-line")];
+    return blocks.map((b) => b.textContent);
+  });
+const expectedTerm = (page, stepIndex) =>
+  page.eval(async (i) => {
+    const { ACTS } = await import("./acts.js");
+    const { createTerminal } = await import("./terminal.js");
+    const steps = ACTS.flatMap((a) => a.steps);
+    const el = document.createElement("div");
+    const t = createTerminal(el);
+    t.renderInstant(steps.slice(0, i + 1).flatMap((s) => s.lines));
+    return [...el.querySelectorAll(".t-log > .t-line")].map((b) => b.textContent);
+  }, stepIndex);
+const firstStepOfAct = (page, act) =>
+  page.eval(async (n) => {
+    const { ACTS } = await import("./acts.js");
+    return ACTS.slice(0, n - 1).reduce((sum, a) => sum + a.steps.length, 0);
+  }, act);
+
+// --- Tests: the player -----------------------------------------------------------------------
+
+test("jumping between acts mid-playback renders the target step's end state", async ({
+  newPage,
+}) => {
+  const page = await newPage();
+  await page.goto("/");
+  await page.eval(() => window.__demo.player.play());
+  await sleep(700); // mid-animation of the first step
+  await page.eval(() => {
+    window.__demo.player.goToAct(5);
+    window.__demo.player.goToAct(2);
+  });
+  const target = await firstStepOfAct(page, 2);
+  const check = async () => {
+    const [got, want] = [await termState(page), await expectedTerm(page, target)];
+    assert.equal(got.at(-1), want.at(-1), "terminal's last line");
+    assert.deepEqual(got, want, "terminal content");
+    assert.equal(await page.eval(() => window.__demo.resume.pageCount()), 2, "replica pages");
+    assert.equal(await page.eval(() => window.__demo.player.step), target, "player step");
+  };
+  await check();
+  await sleep(2500); // the aborted step must not write anything later
+  await check();
+  assert.equal(await page.eval(() => window.__demo.player.playing), false, "jumping pauses");
+});
+
+test("stepping through every step reaches the end state of each act", async ({ newPage }) => {
+  const page = await newPage();
+  await page.goto("/");
+  const trace = await page.eval(async () => {
+    const { ACTS } = await import("./acts.js");
+    const { player, resume } = window.__demo;
+    player.goTo(0);
+    const total = ACTS.reduce((n, a) => n + a.steps.length, 0);
+    const out = [];
+    for (let i = 1; i < total; i++) {
+      player.next();
+      out.push({
+        step: player.step,
+        act: player.act,
+        pages: resume.pageCount(),
+        granary: Boolean(document.querySelector('.resume [data-id="granary"]')),
+        current: document.querySelector('.ctl-act[aria-current="step"]')?.dataset.act,
+      });
+    }
+    player.next(); // past the end: stays on the last step
+    return { out, total, last: player.step };
+  });
+  assert.equal(trace.out.length, trace.total - 1);
+  trace.out.forEach((s, k) => {
+    assert.equal(s.step, k + 1, "next() advances one step");
+    assert.equal(s.current, String(s.act), "the current act chip is marked");
+  });
+  assert.equal(trace.last, trace.total - 1, "next() at the end stays on the last step");
+  const lastOf = (act) => trace.out.findLast((s) => s.act === act);
+  assert.equal(lastOf(2).pages, 1, "after act 2 the variant fits one page");
+  for (const s of trace.out.filter((s) => s.act === 3)) assert.equal(s.pages, 1, "act 3: 1 page");
+  assert.ok(lastOf(5).granary, "after act 5 the granary role is on the page");
+  assert.ok(!lastOf(4).granary, "the granary role appears only in act 5");
+});
+
+test("space while the stage is out of view scrolls the page and leaves playback alone", async ({
+  newPage,
+}) => {
+  const page = await newPage();
+  await page.goto("/");
+  await page.eval(() => {
+    const spacer = document.createElement("div");
+    spacer.style.height = "4000px";
+    document.body.append(spacer);
+    window.__demo.player.pause();
+    const stage = document.getElementById("stage");
+    scrollTo(0, stage.offsetTop + stage.offsetHeight + 200);
+  });
+  await page.frames(3);
+  await sleep(150);
+  const before = await page.eval(() => ({ y: scrollY, playing: window.__demo.player.playing }));
+  await page.key(" ");
+  await page.frames(3);
+  await sleep(300);
+  const after = await page.eval(() => ({ y: scrollY, playing: window.__demo.player.playing }));
+  assert.equal(after.playing, before.playing, "playback did not toggle");
+  assert.ok(after.y > before.y, `the page scrolled (${before.y} → ${after.y})`);
+
+  // Control: back in view, space toggles playback and the page stays put.
+  await page.eval(() => scrollTo(0, 0));
+  await page.frames(3);
+  await sleep(150);
+  await page.key(" ");
+  await page.frames(2);
+  const inView = await page.eval(() => ({ y: scrollY, playing: window.__demo.player.playing }));
+  assert.equal(inView.playing, true, "space in view toggles playback");
+  assert.equal(inView.y, 0, "space in view does not scroll");
+  await page.key("ArrowRight");
+  await page.key("3");
+  const third = await firstStepOfAct(page, 3);
+  assert.equal(await page.eval(() => window.__demo.player.step), third, "digit keys jump to acts");
+});
+
+test("controls, swipe, and events", async ({ newPage }) => {
+  const page = await newPage({ width: 390, height: 844, mobile: true, deviceScaleFactor: 2 });
+  await page.goto("/");
+  await page.eval(() => {
+    window.__demo.player.pause();
+    window.__demo.events.length = 0;
+  });
+  // A chip click jumps to its act; prev/next buttons step.
+  await page.eval(() => document.querySelector('.ctl-act[data-act="4"]').click());
+  const four = await firstStepOfAct(page, 4);
+  assert.equal(await page.eval(() => window.__demo.player.step), four);
+  await page.eval(() => document.querySelector('[data-ctl="next"]').click());
+  await page.eval(() => document.querySelector('[data-ctl="prev"]').click());
+  assert.equal(await page.eval(() => window.__demo.player.step), four);
+  // A left swipe on the stage steps forward, a right swipe steps back.
+  const box = await page.eval(() => {
+    const r = document.getElementById("stage").getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + Math.min(r.height / 2, 200) };
+  });
+  await page.swipe(box.x + 80, box.y, box.x - 80, box.y);
+  assert.equal(await page.eval(() => window.__demo.player.step), four + 1, "left swipe: next");
+  await page.swipe(box.x - 80, box.y, box.x + 80, box.y);
+  assert.equal(await page.eval(() => window.__demo.player.step), four, "right swipe: prev");
+  // Play button toggles.
+  await page.eval(() => document.querySelector('[data-ctl="play"]').click());
+  assert.equal(await page.eval(() => window.__demo.player.playing), true);
+  await page.eval(() => document.querySelector('[data-ctl="play"]').click());
+  assert.equal(await page.eval(() => window.__demo.player.playing), false);
+  // Jump to the last act and step to the end.
+  await page.eval(() => {
+    window.__demo.player.goToAct(5);
+    while (window.__demo.player.step < window.__demo.player.stepCount - 1)
+      window.__demo.player.next();
+  });
+  const events = await page.eval(() => window.__demo.events);
+  const names = events.map((e) => e.name);
+  assert.deepEqual(
+    events.filter((e) => e.name === "interact").map((e) => e.params.method),
+    ["act_chip", "step", "step", "swipe", "swipe", "play", "play"],
+  );
+  assert.deepEqual(
+    events.filter((e) => e.name === "act").map((e) => e.params),
+    [
+      { act: 4, act_name: "submit" },
+      { act: 5, act_name: "update" },
+    ],
+  );
+  assert.deepEqual(events.at(-1), { name: "complete", params: { method: "manual" } });
+  assert.equal(names.filter((n) => n === "complete").length, 1);
+  assert.equal(
+    await page.eval(() => getComputedStyle(document.querySelector(".demo-tag")).display !== "none"),
+    true,
+    "act 5 shows the demo-step tag",
+  );
+  assert.ok(
+    await page.eval(() => document.documentElement.scrollWidth <= innerWidth),
+    "no horizontal scroll",
+  );
+});
+
+test("autoplay starts on its own and plays through the first steps", async ({ newPage }) => {
+  const page = await newPage();
+  await page.goto("/");
+  await page.waitFor(() => window.__demo.player.playing);
+  await page.waitFor(() => window.__demo.player.step >= 1, { timeout: 20_000 });
+  const events = await page.eval(() => window.__demo.events);
+  assert.deepEqual(events[0], { name: "act", params: { act: 1, act_name: "facts" } });
+  assert.ok(!events.some((e) => e.name === "interact"), "autoplay is not an interaction");
+});
+
+test("reduced motion: no autoplay, steps render instantly", async ({ newPage }) => {
+  const page = await newPage({ media: REDUCED });
+  await page.goto("/");
+  await sleep(3000);
+  assert.equal(await page.eval(() => window.__demo.player.step), 0, "no autoplay");
+  assert.equal(await page.eval(() => window.__demo.player.playing), false);
+  const got = await page.eval(() => {
+    window.__demo.player.next();
+    return {
+      animations: document.getAnimations().length,
+      ghosts: document.querySelectorAll(".r-ghost").length,
+      blocks: [...document.querySelectorAll("#term .t-log > .t-line")].map((b) => b.textContent),
+    };
+  });
+  assert.equal(got.animations, 0, "no animations");
+  assert.equal(got.ghosts, 0, "no ghosts");
+  assert.deepEqual(got.blocks, await expectedTerm(page, 1), "end state rendered at once");
+  // Pressing play shows each step's end state at once (no typing), then holds and advances.
+  await page.eval(() => window.__demo.player.play());
+  await sleep(150);
+  assert.deepEqual(await termState(page), await expectedTerm(page, 1), "play: no typing");
+  await page.waitFor(() => window.__demo.player.step >= 2, { timeout: 10_000 });
+  await sleep(150);
+  assert.deepEqual(await termState(page), await expectedTerm(page, 2), "next step at once");
+  assert.equal(await page.eval(() => document.getAnimations().length), 0);
+});
+
+test("the terminal stays scrolled to its last line after every jump", async ({ newPage }) => {
+  const page = await newPage();
+  await page.goto("/");
+  await page.eval(() => window.__demo.player.pause());
+  const count = await page.eval(() => window.__demo.player.stepCount);
+  for (const order of [[...Array(count).keys()], [...Array(count).keys()].reverse()]) {
+    for (const i of order) {
+      await page.eval((n) => window.__demo.player.goTo(n), i);
+      await page.frames(3);
+      const gap = await page.eval(() => {
+        const log = document.querySelector("#term .t-log");
+        return Math.round(log.scrollHeight - log.scrollTop - log.clientHeight);
+      });
+      assert.ok(gap <= 1, `step ${i}: ${gap}px below the visible part of the log`);
+    }
+  }
+});
+
+test("screenshots: end state of every act", async ({ newPage }) => {
+  for (const [width, height] of [
+    [1280, 720],
+    [1920, 1080],
+    [390, 844],
+  ]) {
+    const page = await newPage({ width, height, mobile: width < 800, deviceScaleFactor: 1 });
+    await page.goto("/");
+    for (let act = 1; act <= 5; act++) {
+      await page.eval(async (n) => {
+        const { ACTS } = await import("./acts.js");
+        const end = ACTS.slice(0, n).reduce((sum, a) => sum + a.steps.length, 0) - 1;
+        window.__demo.player.pause();
+        window.__demo.player.goTo(end);
+      }, act);
+      await page.frames(2);
+      await sleep(400); // highlight transitions
+      await page.screenshot(`act-${act}-${width}x${height}`);
+      assert.ok(
+        await page.eval(() => document.documentElement.scrollWidth <= innerWidth),
+        `no horizontal scroll at ${width}×${height}`,
+      );
+    }
+  }
+});
+
+await main();
