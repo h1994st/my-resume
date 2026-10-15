@@ -129,11 +129,15 @@ jobs:
       - name: Assemble
         run: site/assemble.sh build/site pdfs
 
+      # The smoke tier on every push and pull request; the full suite (screenshot matrix and
+      # playback) on a manual run (workflow_dispatch).
       - name: Browser tests
         run: node site/tests/browser.mjs
         env:
           CHROME: google-chrome
+          BROWSER_TESTS: ${{ github.event_name == 'workflow_dispatch' && 'full' || 'smoke' }}
 
+      # The smoke tier takes none: nothing to upload then.
       - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@v7

@@ -3,14 +3,19 @@
 // built-ins only (global WebSocket, node:http, node:assert, node:child_process). No npm.
 //
 // Usage:  site/assemble.sh build/site .   (after `just build` and `just build applications/…`)
-//         node site/tests/browser.mjs [name-filter]
+//         node site/tests/browser.mjs [--tier smoke|full] [name-filter]
 // Env:    CHROME=<path to Chrome>  (default: the macOS app, else `google-chrome` on PATH)
 //         SITE_DIR=<dir to serve>  (default: build/site)
-// Screenshots go to build/site-shots/. Prints one line per test; exits 1 if any test fails.
+//         BROWSER_TESTS=smoke|full  (the tier when --tier is not given)
+// Tiers: `full` runs every test (the default locally); `smoke` runs the tests named in SMOKE, a
+// quick pass with no screenshots and no playback beyond one ?speed=16 page (the default when CI
+// is set). Screenshots go to build/site-shots/. Prints one line per test and the total time;
+// exits 1 if any test fails.
 //
 // Adding a test: test("name", async ({ newPage }) => { const page = await newPage({ width, height,
-// media }); await page.goto("/"); assert.equal(await page.eval(() => 1 + 1), 2); }). Pages are
-// closed after the test, and an uncaught exception in any page fails the test.
+// media }); await page.goto("/"); assert.equal(await page.eval(() => 1 + 1), 2); }), and its name
+// in SMOKE to run it in the smoke tier too. Pages are closed after the test, and an uncaught
+// exception in any page fails the test.
 
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
@@ -381,19 +386,66 @@ function test(name, fn) {
   TESTS.push({ name, fn });
 }
 
+// The smoke tier (each also runs in full): loads, end frames by jump, themes, reduced motion,
+// analytics, the call to action, the sections' text, and the head. Names must match a test.
+const SMOKE = new Set([
+  "smoke: the page loads without errors in light and dark",
+  "smoke: every scene's end frame by jump at 1920×1080 and 390×844",
+  "smoke: the sections' verified text and the README's quick start",
+  "film: scene 9's call to action is a real link, outside the aria-hidden world",
+  "film: reduced motion: no autoplay, camera cuts, end frames at once",
+  "sections: each close-up's pen mark sits on what it names in the real PDF",
+  "head: title, description, theme colour, Open Graph image, favicon",
+  "theme: the toggle sets data-theme and keeps it across a reload",
+  "theme: a stored theme applies before the first paint",
+  "theme: the toggle shows the theme on screen before main.js runs",
+  "analytics: debug mode fills dataLayer with the exact event sequence",
+  "analytics: off the site (127.0.0.1) nothing is set up or loaded",
+]);
+const TIERS = ["smoke", "full"];
+
+// --tier smoke|full (or --tier=…), else BROWSER_TESTS, else smoke in CI and full elsewhere; the
+// first other argument filters tests by name.
+function parseArgs(argv) {
+  let tier = null;
+  let filter = "";
+  for (let i = 0; i < argv.length; i++) {
+    const m = argv[i].match(/^--tier(?:=(.*))?$/);
+    if (m) tier = m[1] ?? argv[++i];
+    else if (!filter) filter = argv[i];
+  }
+  tier ??= process.env.BROWSER_TESTS || (process.env.CI ? "smoke" : "full");
+  if (!TIERS.includes(tier)) {
+    console.error(`unknown tier "${tier}" (${TIERS.join(" or ")})`);
+    process.exit(2);
+  }
+  return { tier, filter };
+}
+
 async function main() {
   if (!existsSync(path.join(SITE, "index.html"))) {
     console.error(`no site at ${SITE}; run site/assemble.sh build/site . first`);
     process.exit(2);
   }
-  const filter = process.argv[2] ?? "";
+  const { tier, filter } = parseArgs(process.argv.slice(2));
+  const names = new Set(TESTS.map((t) => t.name));
+  const unknown = [...SMOKE].filter((n) => !names.has(n));
+  if (unknown.length) {
+    console.error(`SMOKE names no test: ${unknown.join("; ")}`);
+    process.exit(2);
+  }
+  const selected = TESTS.filter(
+    (t) => (tier === "full" || SMOKE.has(t.name)) && t.name.includes(filter),
+  );
+  console.log(`tier ${tier}: ${selected.length} of ${TESTS.length} tests`);
+  const started = Date.now();
   const { server, port } = await serve(SITE);
   const base = `http://127.0.0.1:${port}/`;
   const chrome = launchChrome();
   let failed = 0;
   try {
     const cdp = await CDP.connect(await chrome.url);
-    for (const { name, fn } of TESTS.filter((t) => t.name.includes(filter))) {
+    for (const { name, fn } of selected) {
       const pages = [];
       const newPage = async ({
         width = 1280,
@@ -436,6 +488,8 @@ async function main() {
     await chrome.cleanup();
     server.close();
   }
+  const secs = ((Date.now() - started) / 1000).toFixed(1);
+  console.log(`${failed ? `${failed} failed` : "all passed"} (tier ${tier}, ${secs} s)`);
   process.exit(failed ? 1 : 0);
 }
 
@@ -528,6 +582,34 @@ const sceneNames = (page) =>
   page.eval(async () => (await import("./scenes.js")).SCENES.map((s) => [s.id, s.name]));
 
 // --- Tests: the film -------------------------------------------------------------------------
+
+test("smoke: the page loads without errors in light and dark", async ({ newPage }) => {
+  for (const theme of ["light", "dark"]) {
+    const page = await newPage({ media: [{ name: "prefers-color-scheme", value: theme }] });
+    // Console errors and failed loads (404s), besides the uncaught exceptions every test checks.
+    const errors = [];
+    const off = page.cdp.on((msg) => {
+      if (msg.sessionId !== page.sessionId) return;
+      if (msg.method === "Runtime.consoleAPICalled" && msg.params.type === "error") {
+        errors.push(msg.params.args.map((a) => a.value ?? a.description).join(" "));
+      }
+      if (msg.method === "Log.entryAdded" && msg.params.entry.level === "error") {
+        errors.push(`${msg.params.entry.text} ${msg.params.entry.url ?? ""}`);
+      }
+    });
+    await page.send("Log.enable");
+    await page.goto("/");
+    await page.waitFor(() => window.__demo.film.seen);
+    await page.frames(4);
+    off();
+    assert.deepEqual(errors, [], `${theme}: console errors`);
+    const got = await page.eval(() => ({
+      bg: getComputedStyle(document.body).backgroundColor,
+      scenes: window.__demo.film.sceneCount,
+    }));
+    assert.deepEqual(got, { bg: DESK[theme], scenes: 9 }, theme);
+  }
+});
 
 test("film: a jump during a camera move renders the scene's end frame, and it stays", async ({
   newPage,
@@ -1831,6 +1913,31 @@ test("layout: every scene's end frame at every size, in both themes, with screen
   assert.deepEqual(problems, []);
 });
 
+test("smoke: every scene's end frame by jump at 1920×1080 and 390×844", async ({ newPage }) => {
+  // The layout checks of the screenshot test above, at two sizes, from jumps alone.
+  const problems = [];
+  for (const [width, height] of [
+    [1920, 1080],
+    [390, 844],
+  ]) {
+    const page = await newPage({ width, height, mobile: width < 800, media: REDUCED });
+    await page.goto("/");
+    await pausedFilm(page);
+    const count = await page.eval(() => window.__demo.film.sceneCount);
+    for (let n = 0; n < count; n++) {
+      await page.eval((i) => window.__demo.film.goTo(i), n);
+      await page.frames(2);
+      try {
+        checkFilmLayout(await filmLayout(page), `scene ${n + 1} at ${width}×${height}`);
+      } catch (err) {
+        problems.push(err.message.split("\n")[0]);
+      }
+    }
+    await page.close();
+  }
+  assert.deepEqual(problems, []);
+});
+
 // --- Tests: the product page below the film ---------------------------------------------------
 
 const SECTIONS = ["template", "how-it-works", "get-started", "credits"];
@@ -1961,14 +2068,104 @@ const sectionsState = (page) =>
     };
   }, SECTIONS);
 
-test("sections: the template, how it works, get started, and credits, at every size in both themes", async ({
-  newPage,
-}) => {
+// The README's quick start (the commands in its first bash block after "Quick start").
+const quickStart = () => {
   const readme = readFileSync(path.join(REPO, "README.md"), "utf8");
-  const quick = readme
+  return readme
     .slice(readme.indexOf("Quick start"))
     .match(/```bash\n([\s\S]*?)\n```/)[1]
     .split("\n");
+};
+
+// The sections' content and calm, as sectionsState measured them at one size and theme: fails
+// at once on missing content; adds layout problems (contrast, overflow) to `problems`.
+function checkSections(got, label, problems) {
+  const quick = quickStart();
+  assert.deepEqual(got.order, SECTIONS, `${label}: sections in order`);
+  assert.deepEqual(
+    got.figures.map((f) => [f.src, f.href]),
+    [
+      ["img/canonical-1.png", "pdf/canonical.pdf"],
+      ["img/canonical-2.png", "pdf/canonical.pdf"],
+      ["img/tailored-1.png", "pdf/tailored.pdf"],
+    ],
+  );
+  assert.ok(
+    got.figures.every((f) => f.loaded),
+    `${label}: page images load`,
+  );
+  assert.equal(got.items, 6, "six things to notice");
+  assert.match(got.text, /Package resume Error: Unknown role key 'windowsil'\./);
+  assert.match(got.text, /\.\/canonical\/resume\.tex:60:/);
+  assert.match(got.text, /\\defrole\{windowsill\}/);
+  assert.match(got.text, /\\begin\{role\}\{windowsill\}/);
+  assert.match(got.text, /51 page positions/);
+  assert.deepEqual(got.commands, quick, "the README's quick start");
+  for (const href of [
+    "https://github.com/h1994st/my-resume",
+    "https://github.com/h1994st/my-resume/blob/main/CLAUDE.md",
+    "https://github.com/h1994st/my-resume/blob/main/.claude/skills/customize-resume/SKILL.md",
+    "https://github.com/h1994st/my-resume/blob/main/.claude/skills/update-resume/SKILL.md",
+  ]) {
+    assert.ok(got.links.includes(href), `link to ${href}`);
+  }
+  // How it works: three beats, each with a decorative cat and pen marks.
+  assert.equal(got.how.length, 3, "three beats");
+  assert.match(got.how[0].title, /once/i);
+  assert.match(got.how[1].title, /\/customize-resume/);
+  assert.match(got.how[2].title, /\/update-resume/);
+  for (const beat of got.how) {
+    assert.ok(beat.cats.length >= 1, `${label}: a cat in "${beat.title}"`);
+    assert.ok(
+      beat.cats.every(([, hidden]) => hidden === "true"),
+      `${label}: decorative cats`,
+    );
+    assert.ok(beat.marks >= 1, `${label}: a pen mark in "${beat.title}"`);
+  }
+  // Credits: the cast, the name, the license, and the fonts.
+  assert.deepEqual(got.credits.cats, ["duna", "dudu", "nangnang"]);
+  for (const s of [
+    "Duna = Du(du) + Na(ngnang)",
+    "Dudu",
+    "Nangnang",
+    "MIT",
+    "SIL Open Font License",
+    "Source Serif 4",
+    "Source Sans 3",
+    "Caveat",
+    "Duna Feline is fictional.",
+  ]) {
+    assert.ok(got.credits.text.includes(s), `credits: "${s}"`);
+  }
+  assert.ok(
+    got.credits.links.includes("https://github.com/h1994st/my-resume/blob/main/LICENSE"),
+    "credits: the MIT license",
+  );
+  assert.ok(got.credits.links.includes("fonts/caveat/OFL.txt"), "credits: Caveat's license");
+  // The pen: on the template's pages and snippets; legible; inside the window.
+  assert.ok(got.marks.template >= 6, `${label}: ${got.marks.template} marks on the template`);
+  for (const n of got.ink) {
+    if (n.contrast < 3) problems.push(`${label}: note "${n.text}" contrast ${n.contrast}`);
+  }
+  for (const b of got.penBoxes) {
+    if (b.left < -1 || b.right > got.vw + 1) {
+      problems.push(`${label}: pen "${b.text}" outside the window (${b.left}–${b.right})`);
+    }
+  }
+  // Calm: no all-caps, gradients, or arrows on links; prose under 80ch; emoji decorative.
+  assert.deepEqual(got.caps, [], `${label}: all-caps text`);
+  assert.deepEqual(got.gradients, [], `${label}: gradients`);
+  assert.equal(got.arrows, 0, `${label}: "→" on a link`);
+  assert.deepEqual(got.wide, [], `${label}: prose over 80ch`);
+  assert.deepEqual(got.bareEmoji, [], `${label}: emoji not aria-hidden`);
+  if (got.scrollWidth > got.vw) {
+    problems.push(`${label}: horizontal scroll (${got.scrollWidth} > ${got.vw})`);
+  }
+}
+
+test("sections: the template, how it works, get started, and credits, at every size in both themes", async ({
+  newPage,
+}) => {
   const problems = [];
   for (const theme of ["light", "dark"]) {
     for (const [width, height] of SIZES) {
@@ -1987,92 +2184,26 @@ test("sections: the template, how it works, get started, and credits, at every s
         [...document.querySelectorAll("#template img")].every((i) => i.complete && i.naturalWidth),
       );
       const got = await sectionsState(page);
-      assert.deepEqual(got.order, SECTIONS, `${label}: sections in order`);
-      assert.deepEqual(
-        got.figures.map((f) => [f.src, f.href]),
-        [
-          ["img/canonical-1.png", "pdf/canonical.pdf"],
-          ["img/canonical-2.png", "pdf/canonical.pdf"],
-          ["img/tailored-1.png", "pdf/tailored.pdf"],
-        ],
-      );
-      assert.ok(
-        got.figures.every((f) => f.loaded),
-        `${label}: page images load`,
-      );
-      assert.equal(got.items, 6, "six things to notice");
-      assert.match(got.text, /Package resume Error: Unknown role key 'windowsil'\./);
-      assert.match(got.text, /\.\/canonical\/resume\.tex:60:/);
-      assert.match(got.text, /\\defrole\{windowsill\}/);
-      assert.match(got.text, /\\begin\{role\}\{windowsill\}/);
-      assert.match(got.text, /51 page positions/);
-      assert.deepEqual(got.commands, quick, "the README's quick start");
-      for (const href of [
-        "https://github.com/h1994st/my-resume",
-        "https://github.com/h1994st/my-resume/blob/main/CLAUDE.md",
-        "https://github.com/h1994st/my-resume/blob/main/.claude/skills/customize-resume/SKILL.md",
-        "https://github.com/h1994st/my-resume/blob/main/.claude/skills/update-resume/SKILL.md",
-      ]) {
-        assert.ok(got.links.includes(href), `link to ${href}`);
-      }
-      // How it works: three beats, each with a decorative cat and pen marks.
-      assert.equal(got.how.length, 3, "three beats");
-      assert.match(got.how[0].title, /once/i);
-      assert.match(got.how[1].title, /\/customize-resume/);
-      assert.match(got.how[2].title, /\/update-resume/);
-      for (const beat of got.how) {
-        assert.ok(beat.cats.length >= 1, `${label}: a cat in "${beat.title}"`);
-        assert.ok(
-          beat.cats.every(([, hidden]) => hidden === "true"),
-          `${label}: decorative cats`,
-        );
-        assert.ok(beat.marks >= 1, `${label}: a pen mark in "${beat.title}"`);
-      }
-      // Credits: the cast, the name, the license, and the fonts.
-      assert.deepEqual(got.credits.cats, ["duna", "dudu", "nangnang"]);
-      for (const s of [
-        "Duna = Du(du) + Na(ngnang)",
-        "Dudu",
-        "Nangnang",
-        "MIT",
-        "SIL Open Font License",
-        "Source Serif 4",
-        "Source Sans 3",
-        "Caveat",
-        "Duna Feline is fictional.",
-      ]) {
-        assert.ok(got.credits.text.includes(s), `credits: "${s}"`);
-      }
-      assert.ok(
-        got.credits.links.includes("https://github.com/h1994st/my-resume/blob/main/LICENSE"),
-        "credits: the MIT license",
-      );
-      assert.ok(got.credits.links.includes("fonts/caveat/OFL.txt"), "credits: Caveat's license");
-      // The pen: on the template's pages and snippets; legible; inside the window.
-      assert.ok(got.marks.template >= 6, `${label}: ${got.marks.template} marks on the template`);
-      for (const n of got.ink) {
-        if (n.contrast < 3) problems.push(`${label}: note "${n.text}" contrast ${n.contrast}`);
-      }
-      for (const b of got.penBoxes) {
-        if (b.left < -1 || b.right > got.vw + 1) {
-          problems.push(`${label}: pen "${b.text}" outside the window (${b.left}–${b.right})`);
-        }
-      }
-      // Calm: no all-caps, gradients, or arrows on links; prose under 80ch; emoji decorative.
-      assert.deepEqual(got.caps, [], `${label}: all-caps text`);
-      assert.deepEqual(got.gradients, [], `${label}: gradients`);
-      assert.equal(got.arrows, 0, `${label}: "→" on a link`);
-      assert.deepEqual(got.wide, [], `${label}: prose over 80ch`);
-      assert.deepEqual(got.bareEmoji, [], `${label}: emoji not aria-hidden`);
-      if (got.scrollWidth > width) {
-        problems.push(`${label}: horizontal scroll (${got.scrollWidth} > ${width})`);
-      }
+      checkSections(got, label, problems);
       for (const id of SECTIONS) {
         await page.screenshotOf(`#${id}`, `section-${id}-${theme}-${width}x${height}`);
       }
       await page.close();
     }
   }
+  assert.deepEqual(problems, []);
+});
+
+test("smoke: the sections' verified text and the README's quick start", async ({ newPage }) => {
+  const page = await newPage({ width: 1280, height: 720, media: scheme("light") });
+  await page.goto("/");
+  await page.eval(() => window.__demo.film.pause());
+  await readPage(page);
+  await page.waitFor(() =>
+    [...document.querySelectorAll("#template img")].every((i) => i.complete && i.naturalWidth),
+  );
+  const problems = [];
+  checkSections(await sectionsState(page), "1280×720 light", problems);
   assert.deepEqual(problems, []);
 });
 
@@ -2853,7 +2984,7 @@ const dataLayer = (page) =>
 
 test("analytics: debug mode fills dataLayer with the exact event sequence", async ({ newPage }) => {
   const page = await newPage();
-  await page.goto("/?analytics=debug&speed=8");
+  await page.goto("/?analytics=debug&speed=16");
   await page.eval(() => window.__demo.film.pause());
   await page.waitFor(() => window.dataLayer?.some((c) => c[0] === "config"));
   await page.key("ArrowRight");
