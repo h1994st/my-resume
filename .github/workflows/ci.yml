@@ -103,69 +103,38 @@ jobs:
             applications/*/resume.pdf
           if-no-files-found: warn
 
+  # The project website (shengtuo.me/my-resume/) lives on the `site` branch, outside the template.
+  # After a green build of main in the original repo, redeploy it with these PDFs, and wait for
+  # that run: the site checks its demo against main's PDFs and README, so a sample-content change
+  # that breaks it turns this run red instead of leaving the live site quietly stale. Copies made
+  # from the template skip this job.
   site:
-    name: Site (assemble, check, browser tests)
+    name: Redeploy the project site
     needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      # The build job's artifact is rooted at the repo root (the least common ancestor of its paths).
-      - uses: actions/download-artifact@v8
-        with:
-          name: resumes-Linux
-          path: pdfs
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-
-      - name: Install poppler
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq poppler-utils
-
-      - name: Honesty check (replica text is in the real PDFs)
-        run: site/check.sh pdfs
-
-      - name: Assemble
-        run: site/assemble.sh build/site pdfs
-
-      # The smoke tier on every push and pull request; the full suite (screenshot matrix and
-      # playback) on a manual run (workflow_dispatch).
-      - name: Browser tests
-        run: node site/tests/browser.mjs
-        env:
-          CHROME: google-chrome
-          BROWSER_TESTS: ${{ github.event_name == 'workflow_dispatch' && 'full' || 'smoke' }}
-
-      # The smoke tier takes none: nothing to upload then.
-      - name: Upload screenshots
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: site-screenshots
-          path: build/site-shots
-          if-no-files-found: ignore
-
-      - name: Upload site
-        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-        uses: actions/upload-pages-artifact@v5
-        with:
-          path: build/site
-
-  deploy:
-    name: Deploy to GitHub Pages
-    needs: site
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    if: github.repository == 'h1994st/my-resume' && github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    concurrency:
-      group: pages
-      cancel-in-progress: false
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
-      - id: deployment
-        uses: actions/deploy-pages@v5
+      - name: Dispatch pages.yml on the site branch
+        run: gh workflow run pages.yml --repo "$GITHUB_REPOSITORY" --ref site -f run_id="$GITHUB_RUN_ID"
+
+      # pages.yml names its dispatched runs "Pages for main run <id>" (run-name).
+      - name: Wait for the site deploy
+        run: |
+          title="Pages for main run $GITHUB_RUN_ID"
+          for _ in $(seq 36); do
+            id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow pages.yml --event workflow_dispatch \
+              --limit 20 --json databaseId,displayTitle \
+              --jq "map(select(.displayTitle == \"$title\"))[0].databaseId // empty")
+            [ -n "$id" ] && break
+            sleep 5
+          done
+          if [ -z "$id" ]; then
+            echo "::error::The site deploy run ($title) did not start"
+            exit 1
+          fi
+          echo "Site deploy: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$id"
+          gh run watch "$id" --repo "$GITHUB_REPOSITORY" --exit-status --interval 15
