@@ -1,0 +1,7 @@
+# Build output (site/assemble.sh, site/tests/browser.mjs)
+build/
+
+# A checkout of main (the template), or a symlink to one
+template
+
+.DS_Store

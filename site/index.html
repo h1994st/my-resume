@@ -1,0 +1,461 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>my-resume</title>
+    <meta
+      name="description"
+      content="A LaTeX resume template you can git diff: facts defined once and cited by key, a canonical resume with tailored variants per job, and Claude Code skills for the workflow."
+    />
+    <meta name="theme-color" content="#eef0f3" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#1b1f25" media="(prefers-color-scheme: dark)" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="my-resume" />
+    <meta
+      property="og:description"
+      content="A LaTeX resume you can git diff, tailored per job with Claude Code."
+    />
+    <meta property="og:image" content="https://shengtuo.me/my-resume/img/canonical-1.png" />
+    <meta property="og:url" content="https://shengtuo.me/my-resume/" />
+    <link rel="canonical" href="https://shengtuo.me/my-resume/" />
+    <!-- The author @id is the Person entity on shengtuo.me's homepage; keep it exactly. -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareSourceCode",
+        "name": "my-resume",
+        "description": "Resume-as-code: a tested XeLaTeX template, a canonical-to-tailored-variant workflow, and Claude Code skills to tailor it to a job posting.",
+        "url": "https://shengtuo.me/my-resume/",
+        "image": "https://shengtuo.me/my-resume/img/canonical-1.png",
+        "codeRepository": "https://github.com/h1994st/my-resume",
+        "programmingLanguage": ["TeX", "JavaScript"],
+        "license": "https://opensource.org/licenses/MIT",
+        "author": {
+          "@type": "Person",
+          "@id": "https://shengtuo.me/#person",
+          "name": "Shengtuo Hu",
+          "url": "https://shengtuo.me/"
+        }
+      }
+    </script>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 0v32' stroke='%23c3c6cb' stroke-width='4'/%3E%3Ccircle cx='16' cy='16' r='9' fill='%23fff' stroke='%23374151' stroke-width='5'/%3E%3C/svg%3E"
+    />
+    <script>
+      // A theme the user picked (theme.js), applied before the first paint.
+      try {
+        const theme = localStorage.getItem("theme");
+        if (theme === "light" || theme === "dark") document.documentElement.dataset.theme = theme;
+      } catch {}
+    </script>
+    <link rel="stylesheet" href="style.css" />
+    <script type="module" src="main.js"></script>
+  </head>
+  <body>
+    <header class="site-title">
+      <h1>my-resume</h1>
+      <p>A LaTeX resume you can <code>git diff</code>, tailored per job with Claude Code.</p>
+      <a href="https://github.com/h1994st/my-resume">GitHub</a>
+      <button type="button" class="theme-toggle" id="theme-toggle" aria-pressed="false">
+        <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" focusable="false">
+          <path d="M15.5 12.6A6.5 6.5 0 0 1 7.4 4.5a6.5 6.5 0 1 0 8.1 8.1z" />
+        </svg>
+        <span>Dark</span><span class="visually-hidden"> theme</span>
+      </button>
+      <script>
+        // The toggle's state from the first paint (theme.js keeps it up to date).
+        {
+          const system = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+          const theme = document.documentElement.dataset.theme ?? system;
+          document
+            .getElementById("theme-toggle")
+            .setAttribute("aria-pressed", String(theme === "dark"));
+        }
+      </script>
+    </header>
+
+    <section
+      class="film"
+      id="film"
+      aria-roledescription="demo"
+      aria-label="The my-resume film: a scripted replay of the workflow"
+    ></section>
+
+    <main class="sections">
+      <section class="section" id="template" aria-labelledby="template-title">
+        <h2 id="template-title">The template</h2>
+        <p class="lead">
+          One class file owns the layout; a resume file holds only content. These are the real
+          pages, built by CI from this commit: Duna's complete canonical resume, and the one-page
+          variant tailored for a job.
+        </p>
+
+        <div class="sheets">
+          <figure>
+            <a href="pdf/canonical.pdf">
+              <img
+                src="img/canonical-1.png"
+                alt="Canonical resume, page 1"
+                width="935"
+                height="1210"
+                loading="lazy"
+              />
+            </a>
+            <figcaption>Canonical, page 1</figcaption>
+          </figure>
+          <figure>
+            <a href="pdf/canonical.pdf">
+              <img
+                src="img/canonical-2.png"
+                alt="Canonical resume, page 2"
+                width="935"
+                height="1210"
+                loading="lazy"
+              />
+            </a>
+            <figcaption>Canonical, page 2</figcaption>
+          </figure>
+          <figure>
+            <a href="pdf/tailored.pdf">
+              <img
+                src="img/tailored-1.png"
+                alt="Resume tailored for one job, page 1"
+                width="935"
+                height="1210"
+                loading="lazy"
+              />
+            </a>
+            <figcaption>Tailored for one job</figcaption>
+          </figure>
+        </div>
+
+        <p class="prose">What to notice, from the top of a page down:</p>
+        <!-- Close-ups crop the real page 1 (data-crop, in PDF points); the pen marks data-mark on
+             it. The browser tests check each mark against the PDF's own word boxes. -->
+        <ol class="tour">
+          <li>
+            <div class="tour-text">
+              <h3>Section tabs</h3>
+              <p>
+                Each section opens with a graphite tab and a rule to the margin. Sections always
+                print in the same order (Summary, Experience, Projects, Education, Publications,
+                Service, Honors &amp; Awards), whatever the order in the source; leave one out to
+                drop it.
+              </p>
+            </div>
+            <figure
+              class="closeup is-line"
+              data-pen-group
+              data-crop="24 214.5 312 28"
+              data-mark="circle 43.25 222.75 71.25 14.25"
+              data-expect="Experience"
+              style="--x: 24; --y: 214.5; --w: 312; --h: 28"
+            >
+              <div class="closeup-paper" data-paper data-pen-layer>
+                <div class="closeup-crop">
+                  <img
+                    src="img/canonical-1.png"
+                    alt="Close-up of page 1: the Experience tab"
+                    width="935"
+                    height="1210"
+                    loading="lazy"
+                  />
+                </div>
+              </div>
+            </figure>
+          </li>
+          <li>
+            <div class="tour-text">
+              <h3>A timeline spine</h3>
+              <p>
+                Roles and projects hang off one line, a ring for each entry, and the line keeps
+                going across a page break.
+              </p>
+            </div>
+            <figure
+              class="closeup"
+              data-pen-group
+              data-crop="28 238 248 134"
+              data-mark="circle 43.5 247 8 116"
+              data-pad="4"
+              data-expect="spine"
+              style="--x: 28; --y: 238; --w: 248; --h: 134"
+            >
+              <div class="closeup-paper" data-paper data-pen-layer>
+                <div class="closeup-crop">
+                  <img
+                    src="img/canonical-1.png"
+                    alt="Close-up of page 1: the spine beside two roles"
+                    width="935"
+                    height="1210"
+                    loading="lazy"
+                  />
+                </div>
+              </div>
+            </figure>
+          </li>
+          <li>
+            <div class="tour-text">
+              <h3>Date pills</h3>
+              <p>
+                Dates are written once as <code>2023-04</code> or <code>present</code>; the class
+                prints them as <span class="pill">Apr 2023 – Present</span>.
+              </p>
+            </div>
+            <figure
+              class="closeup is-line"
+              data-pen-group
+              data-crop="293 239 283 19.5"
+              data-mark="circle 482 246 86 11.5"
+              data-expect="Apr 2023 – Present"
+              style="--x: 293; --y: 239; --w: 283; --h: 19.5"
+            >
+              <div class="closeup-paper" data-paper data-pen-layer>
+                <div class="closeup-crop">
+                  <img
+                    src="img/canonical-1.png"
+                    alt="Close-up of page 1: the date pill Apr 2023 – Present"
+                    width="935"
+                    height="1210"
+                    loading="lazy"
+                  />
+                </div>
+              </div>
+            </figure>
+          </li>
+          <li>
+            <div class="tour-text">
+              <h3>Facts cited by key</h3>
+              <p>
+                A role's title, employer, place, and dates are defined once in
+                <code>common/facts/</code> and cited by key, so every variant prints them the same
+                way.
+              </p>
+            </div>
+            <div class="tour-art">
+              <div class="code-pair" data-pen-group data-pen-layer>
+                <pre><code><span class="c">% common/facts/roles.tex</span>
+\defrole{<span data-pen="underline">windowsill</span>}{
+  title = {Head of Windowsill Operations},
+  org = {Sunbeam Estates},
+  location = {Living Room},
+  start = 2023-04, end = present,
+}</code></pre>
+                <pre><code><span class="c">% canonical/resume.tex</span>
+\begin{role}{<span data-pen="underline" data-note="same key" data-note-side="right">windowsill</span>}
+  \item Initiated and led
+    ``Operation Red Dot'', …
+\end{role}</code></pre>
+              </div>
+              <figure
+                class="closeup is-line"
+                data-pen-group
+                data-crop="30 239 232 19.5"
+                data-mark="underline 61.9 245 145 10"
+                data-expect="Head of Windowsill Operations"
+                style="--x: 30; --y: 239; --w: 232; --h: 19.5"
+              >
+                <div class="closeup-paper" data-paper data-pen-layer>
+                  <div class="closeup-crop">
+                    <img
+                      src="img/canonical-1.png"
+                      alt="Close-up of page 1: the role header Head of Windowsill Operations, Sunbeam Estates, Living Room"
+                      width="935"
+                      height="1210"
+                      loading="lazy"
+                    />
+                  </div>
+                </div>
+              </figure>
+            </div>
+          </li>
+          <li>
+            <div class="tour-text">
+              <h3>A typo fails the build</h3>
+              <p>
+                Cite <code>windowsil</code> instead of <code>windowsill</code> and the build stops
+                with an error that names it. So do a missing field, a duplicate section, and a date
+                like <code>2024-13</code>.
+              </p>
+            </div>
+            <div class="tour-art error-wrap" data-pen-group data-pen-layer>
+              <pre
+                class="error"
+              ><code>./canonical/resume.tex:60: Package resume Error: Unknown role key <span class="nowrap" data-pen="circle" data-note="one “l” short" data-note-side="below">'windowsil'</span>.</code></pre>
+            </div>
+          </li>
+          <li data-pen-group data-pen-layer>
+            <div class="tour-text">
+              <h3>No stranded titles</h3>
+              <p>
+                Pages break between bullets, never between a role's title and its first bullet or
+                between a heading and its first entry. A test moves the content through
+                <span data-pen="underline">51 page positions</span> to check.
+              </p>
+            </div>
+          </li>
+        </ol>
+      </section>
+
+      <section class="section" id="how-it-works" aria-labelledby="how-it-works-title">
+        <h2 id="how-it-works-title">How it works</h2>
+        <p class="lead">
+          One complete resume, a tailored copy for each job, and git to remember what you sent.
+        </p>
+        <ol class="beats">
+          <li class="beat">
+            <div class="beat-art art-facts" data-pen-group data-pen-layer aria-hidden="true">
+              <div class="mini-paper" data-paper data-note="written once" data-note-side="below">
+                <span class="mini-c">% common/facts/roles.tex</span>
+                <span>\defrole{<span data-pen="circle">windowsill</span>}{</span>
+                <span>&nbsp; title = {Head of …},</span>
+                <span>&nbsp; start = 2023-04,</span>
+                <span>}</span>
+              </div>
+              <div class="cast-slot" data-cast="duna"></div>
+            </div>
+            <h3>Facts, written once</h3>
+            <p>
+              Roles, projects, degrees, publications, service, and honors are defined once in
+              <code>common/facts/</code> and cited by key. A wrong key, a missing field, or a bad
+              date stops the build, so a title or a date can't drift between variants.
+            </p>
+          </li>
+          <li class="beat">
+            <div class="beat-art art-plan" data-pen-group data-pen-layer aria-hidden="true">
+              <div class="mini-term" data-note="asks first. no fibs. 🐟" data-note-side="above">
+                <span class="mini-dim">❯ /customize-resume …</span>
+                <span>Proceed with this plan?</span>
+                <span class="mini-sel"
+                  >❯ <span data-pen="circle" data-pen-ink="term">1. Yes</span></span
+                >
+                <span>&nbsp; 2. Adjust the plan</span>
+              </div>
+              <div class="cast-slot" data-cast="duna" data-pose="blink"></div>
+            </div>
+            <h3><code>/customize-resume</code> tailors, with your approval</h3>
+            <p>
+              Give Claude Code a job posting. It saves a summary as <code>jd.md</code> in a new
+              application folder, maps what the job asks for to evidence already in your resume, and
+              stops for your approval before it edits. An ask with no evidence is marked as such,
+              never invented.
+            </p>
+          </li>
+          <li class="beat">
+            <div class="beat-art art-history" data-pen-group data-pen-layer aria-hidden="true">
+              <div class="mini-paper mini-sheet" data-paper>
+                <i class="mini-name"></i>
+                <i class="mini-bar"></i>
+                <i></i><i></i><i class="short"></i><i></i><i></i><i class="short"></i>
+                <div
+                  class="mini-stamp"
+                  data-pen="arrow"
+                  data-pen-from="62 -78"
+                  data-pen-ink="paper"
+                  data-note="kept as sent"
+                  data-note-side="from"
+                >
+                  <span>🐾</span> submitted/
+                </div>
+              </div>
+              <div class="cast-slot" data-cast="nangnang"></div>
+            </div>
+            <h3><code>/update-resume</code> and tags keep history</h3>
+            <p>
+              New experience goes into the facts and the canonical resume, and Claude asks for any
+              date or title it doesn't have. Each application is a folder; tag it
+              <code>submitted/…</code> when you send it, and checking out the tag and building it
+              gives back what you sent (with the same TeX Live).
+            </p>
+          </li>
+        </ol>
+      </section>
+
+      <section class="section" id="get-started" aria-labelledby="get-started-title">
+        <h2 id="get-started-title">Get started</h2>
+        <p class="lead">
+          Use the repo as a template and clone your copy. Then, on macOS with Homebrew:
+        </p>
+        <pre
+          class="commands"
+        ><code>brew bundle          <span class="c"># BasicTeX, just, tex-fmt, prettier, poppler</span>
+just deps            <span class="c"># + the extra TeX Live packages (asks for sudo once)</span>
+just build           <span class="c"># canonical/resume.tex → canonical/resume.pdf</span>
+just check applications/2026-09-granary-senior-mouser   <span class="c"># build + check it fits in 2 pages</span>
+just test            <span class="c"># run the template tests</span></code></pre>
+        <p class="prose">
+          To make it yours, put your details in <code>common/profile.tex</code> and
+          <code>common/facts/</code> (or run <code>/update-resume</code> in Claude Code and let it
+          ask for them), and rewrite <code>canonical/resume.tex</code>. For a job, run
+          <code>/customize-resume</code> with the posting.
+        </p>
+        <ul class="links">
+          <li>
+            <a href="https://github.com/h1994st/my-resume">The repository on GitHub</a>
+            <span>the source and the full README</span>
+          </li>
+          <li>
+            <a href="https://github.com/h1994st/my-resume/blob/main/CLAUDE.md">CLAUDE.md</a>
+            <span>the rules Claude follows, starting with: never invent or inflate a claim</span>
+          </li>
+          <li>
+            <a
+              href="https://github.com/h1994st/my-resume/blob/main/.claude/skills/customize-resume/SKILL.md"
+              >The customize-resume skill</a
+            >
+            <span>tailors a variant to a job posting, and stops for your approval</span>
+          </li>
+          <li>
+            <a
+              href="https://github.com/h1994st/my-resume/blob/main/.claude/skills/update-resume/SKILL.md"
+              >The update-resume skill</a
+            >
+            <span>adds new experience to the facts and the canonical resume</span>
+          </li>
+        </ul>
+      </section>
+    </main>
+
+    <footer class="site-foot" id="credits" aria-labelledby="credits-title">
+      <h2 id="credits-title">Credits</h2>
+      <ul class="cast-list" data-pen-group data-pen-layer>
+        <li>
+          <div class="cast-slot" data-cast="duna"></div>
+          <div>
+            <h3>Duna Feline</h3>
+            <p>
+              The star, and the owner of the sample resume: a gray tabby with amber eyes. Duna
+              Feline is fictional. Her name is half of each of her co-stars:
+            </p>
+            <p class="hand"><span data-pen="underline">Duna = Du(du) + Na(ngnang)</span></p>
+          </div>
+        </li>
+        <li>
+          <div class="cast-slot" data-cast="dudu"></div>
+          <div>
+            <h3>Dudu</h3>
+            <p>Solid gray, green eyes. Co-author of Duna's papers; cheers when she gets the job.</p>
+          </div>
+        </li>
+        <li>
+          <div class="cast-slot" data-cast="nangnang"></div>
+          <div>
+            <h3>Nangnang</h3>
+            <p>A brown tabby. Co-author too; stamps the tag when a resume goes out.</p>
+          </div>
+        </li>
+      </ul>
+      <p class="fine">
+        my-resume is under the
+        <a href="https://github.com/h1994st/my-resume/blob/main/LICENSE">MIT license</a>. Fonts:
+        Source Serif 4 and Source Sans 3 for the resume, and Caveat for the pen, all under the
+        <a href="https://github.com/h1994st/my-resume/blob/main/fonts/SourceSerif4/LICENSE.md"
+          >SIL Open Font License</a
+        >
+        (<a href="fonts/caveat/OFL.txt">Caveat's license</a>).
+      </p>
+    </footer>
+  </body>
+</html>

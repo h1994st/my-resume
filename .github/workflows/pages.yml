@@ -1,0 +1,111 @@
+name: Pages
+run-name: ${{ inputs.run_id && format('Pages for main run {0}', inputs.run_id) || 'Pages' }}
+
+# The project website (https://shengtuo.me/my-resume/). It lives on this orphan `site` branch so
+# that "Use this template" copies of main never get it. main's CI dispatches this workflow after a
+# green build, with the run whose resume PDFs to publish; a push here republishes with the latest
+# green build of main.
+on:
+  push:
+    branches: [site]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: CI run on main whose resume PDFs to publish (default, the latest green one)
+        required: false
+      tests:
+        description: Browser test tier
+        type: choice
+        options: [smoke, full]
+        default: smoke
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  site:
+    name: Site (assemble, check, browser tests)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Find the CI run on main with the PDFs
+        id: run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.run_id }}
+        run: |
+          if [ -z "$RUN_ID" ]; then
+            RUN_ID=$(gh run list -R "$GITHUB_REPOSITORY" --workflow ci.yml --branch main \
+              --event push --status success --limit 1 --json databaseId --jq '.[0].databaseId')
+          fi
+          echo "id=$RUN_ID" >> "$GITHUB_OUTPUT"
+          echo "sha=$(gh run view "$RUN_ID" -R "$GITHUB_REPOSITORY" --json headSha --jq .headSha)" \
+            >> "$GITHUB_OUTPUT"
+
+      # The template at the commit that built the PDFs: fonts, README, commit date.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.run.outputs.sha }}
+          path: template
+
+      # The build job's artifact is rooted at the repo root (the least common ancestor of its paths).
+      - uses: actions/download-artifact@v8
+        with:
+          name: resumes-Linux
+          path: pdfs
+          run-id: ${{ steps.run.outputs.id }}
+          github-token: ${{ github.token }}
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Install poppler
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq poppler-utils
+
+      - name: Honesty check (replica text is in the real PDFs)
+        run: site/check.sh pdfs
+
+      - name: Assemble
+        run: site/assemble.sh build/site pdfs
+
+      - name: Browser tests
+        run: node site/tests/browser.mjs
+        env:
+          CHROME: google-chrome
+          BROWSER_TESTS: ${{ inputs.tests || 'smoke' }}
+
+      # The smoke tier takes none: nothing to upload then.
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: site-screenshots
+          path: build/site-shots
+          if-no-files-found: ignore
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: build/site
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: site
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5
