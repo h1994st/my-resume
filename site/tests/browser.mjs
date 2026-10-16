@@ -33,20 +33,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const REPO = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "../..",
-);
-const SITE = path.resolve(
-  process.env.SITE_DIR ?? path.join(REPO, "build/site"),
-);
+const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+const SITE = path.resolve(process.env.SITE_DIR ?? path.join(REPO, "build/site"));
 const SHOTS = path.join(REPO, "build/site-shots");
 // A checkout of main (the template), for its README.
-const TEMPLATE = path.resolve(
-  process.env.TEMPLATE_DIR ?? path.join(REPO, "template"),
-);
-const MAC_CHROME =
-  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+const TEMPLATE = path.resolve(process.env.TEMPLATE_DIR ?? path.join(REPO, "template"));
+const MAC_CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const TEST_TIMEOUT = 90_000;
 
 // --- Static server ---------------------------------------------------------------------------
@@ -71,8 +63,7 @@ function serve(root) {
     const url = new URL(req.url, "http://localhost");
     let file = path.join(root, decodeURIComponent(url.pathname));
     if (!file.startsWith(root)) return res.writeHead(403).end();
-    if (existsSync(file) && statSync(file).isDirectory())
-      file = path.join(file, "index.html");
+    if (existsSync(file) && statSync(file).isDirectory()) file = path.join(file, "index.html");
     if (!existsSync(file)) return res.writeHead(404).end("not found");
     res.writeHead(200, {
       "content-type": TYPES[path.extname(file)] ?? "application/octet-stream",
@@ -81,9 +72,7 @@ function serve(root) {
     res.end(readFileSync(file));
   });
   return new Promise((resolve) =>
-    server.listen(0, "127.0.0.1", () =>
-      resolve({ server, port: server.address().port }),
-    ),
+    server.listen(0, "127.0.0.1", () => resolve({ server, port: server.address().port })),
   );
 }
 
@@ -124,12 +113,7 @@ function launchChrome() {
     proc.kill();
     await Promise.race([exited, sleep(3000)]);
     try {
-      rmSync(profile, {
-        recursive: true,
-        force: true,
-        maxRetries: 5,
-        retryDelay: 100,
-      });
+      rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     } catch {
       // A leftover temp profile is harmless.
     }
@@ -142,9 +126,7 @@ function launchChrome() {
       if (m) resolve(m[1]);
     });
     proc.on("error", reject);
-    proc.on("exit", (code) =>
-      reject(new Error(`Chrome exited (${code}): ${err}`)),
-    );
+    proc.on("exit", (code) => reject(new Error(`Chrome exited (${code}): ${err}`)));
   });
   return { url, cleanup };
 }
@@ -160,8 +142,7 @@ class CDP {
       if (msg.id !== undefined) {
         const p = this.pending.get(msg.id);
         this.pending.delete(msg.id);
-        if (msg.error)
-          p?.reject(new Error(`${p.method}: ${msg.error.message}`));
+        if (msg.error) p?.reject(new Error(`${p.method}: ${msg.error.message}`));
         else p?.resolve(msg.result);
       } else {
         for (const fn of this.listeners) fn(msg);
@@ -181,9 +162,7 @@ class CDP {
   send(method, params = {}, sessionId) {
     const id = ++this.seq;
     this.ws.send(JSON.stringify({ id, method, params, sessionId }));
-    return new Promise((resolve, reject) =>
-      this.pending.set(id, { resolve, reject, method }),
-    );
+    return new Promise((resolve, reject) => this.pending.set(id, { resolve, reject, method }));
   }
 
   on(fn) {
@@ -199,12 +178,7 @@ const KEYS = {
   ArrowRight: { key: "ArrowRight", code: "ArrowRight", keyCode: 39 },
   Tab: { key: "Tab", code: "Tab", keyCode: 9 },
   ...Object.fromEntries(
-    "123456789"
-      .split("")
-      .map((d) => [
-        d,
-        { key: d, code: `Digit${d}`, keyCode: 48 + +d, text: d },
-      ]),
+    "123456789".split("").map((d) => [d, { key: d, code: `Digit${d}`, keyCode: 48 + +d, text: d }]),
   ),
 };
 
@@ -246,19 +220,14 @@ class Page {
     });
   }
 
-  async viewport(
-    width,
-    height,
-    { mobile = false, deviceScaleFactor = 1 } = {},
-  ) {
+  async viewport(width, height, { mobile = false, deviceScaleFactor = 1 } = {}) {
     await this.send("Emulation.setDeviceMetricsOverride", {
       width,
       height,
       deviceScaleFactor,
       mobile,
     });
-    if (mobile)
-      await this.send("Emulation.setTouchEmulationEnabled", { enabled: true });
+    if (mobile) await this.send("Emulation.setTouchEmulationEnabled", { enabled: true });
   }
 
   // media: [{ name: "prefers-reduced-motion", value: "reduce" }, ...]
@@ -278,9 +247,7 @@ class Page {
   // Evaluates fn(...args) in the page (or a string expression); awaits promises; returns by value.
   async eval(fn, ...args) {
     const expression =
-      typeof fn === "function"
-        ? `(${fn})(...${JSON.stringify(args)})`
-        : String(fn);
+      typeof fn === "function" ? `(${fn})(...${JSON.stringify(args)})` : String(fn);
     const { result, exceptionDetails } = await this.send("Runtime.evaluate", {
       expression,
       awaitPromise: true,
@@ -288,9 +255,7 @@ class Page {
       userGesture: true,
     });
     if (exceptionDetails) {
-      throw new Error(
-        `page: ${exceptionDetails.exception?.description ?? exceptionDetails.text}`,
-      );
+      throw new Error(`page: ${exceptionDetails.exception?.description ?? exceptionDetails.text}`);
     }
     return result.value;
   }
@@ -301,8 +266,7 @@ class Page {
     for (;;) {
       const value = await this.eval(fn, ...args);
       if (value) return value;
-      if (Date.now() - start > timeout)
-        throw new Error(`timed out waiting for ${fn}`);
+      if (Date.now() - start > timeout) throw new Error(`timed out waiting for ${fn}`);
       await sleep(50);
     }
   }
@@ -312,8 +276,7 @@ class Page {
     return this.eval(
       (count) =>
         new Promise((resolve) => {
-          const tick = (left) =>
-            left ? requestAnimationFrame(() => tick(left - 1)) : resolve(1);
+          const tick = (left) => (left ? requestAnimationFrame(() => tick(left - 1)) : resolve(1));
           tick(count);
         }),
       n,
@@ -351,10 +314,7 @@ class Page {
       type: "touchStart",
       touchPoints: [{ x, y, id: 1 }],
     });
-    await this.send("Input.dispatchTouchEvent", {
-      type: "touchEnd",
-      touchPoints: [],
-    });
+    await this.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
   }
 
   // The mouse pointer moved to (x, y) in CSS px.
@@ -370,23 +330,14 @@ class Page {
     }, selector);
     await this.mouse(x, y);
     const press = { x, y, button: "left", clickCount: 1 };
-    await this.send("Input.dispatchMouseEvent", {
-      type: "mousePressed",
-      ...press,
-    });
-    await this.send("Input.dispatchMouseEvent", {
-      type: "mouseReleased",
-      ...press,
-    });
+    await this.send("Input.dispatchMouseEvent", { type: "mousePressed", ...press });
+    await this.send("Input.dispatchMouseEvent", { type: "mouseReleased", ...press });
   }
 
   // A touch swipe from (x0, y0) to (x1, y1) in CSS px.
   async swipe(x0, y0, x1, y1, steps = 8) {
     const point = (x, y) => [{ x, y, id: 1 }];
-    await this.send("Input.dispatchTouchEvent", {
-      type: "touchStart",
-      touchPoints: point(x0, y0),
-    });
+    await this.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: point(x0, y0) });
     for (let i = 1; i <= steps; i++) {
       const t = i / steps;
       await this.send("Input.dispatchTouchEvent", {
@@ -394,17 +345,12 @@ class Page {
         touchPoints: point(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t),
       });
     }
-    await this.send("Input.dispatchTouchEvent", {
-      type: "touchEnd",
-      touchPoints: [],
-    });
+    await this.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
   }
 
   async screenshot(name) {
     mkdirSync(SHOTS, { recursive: true });
-    const { data } = await this.send("Page.captureScreenshot", {
-      format: "png",
-    });
+    const { data } = await this.send("Page.captureScreenshot", { format: "png" });
     const file = path.join(SHOTS, `${name}.png`);
     writeFileSync(file, Buffer.from(data, "base64"));
     return file;
@@ -414,12 +360,7 @@ class Page {
   async screenshotOf(selector, name) {
     const clip = await this.eval((sel) => {
       const r = document.querySelector(sel).getBoundingClientRect();
-      return {
-        x: r.left + scrollX,
-        y: r.top + scrollY,
-        width: r.width,
-        height: r.height,
-      };
+      return { x: r.left + scrollX, y: r.top + scrollY, width: r.width, height: r.height };
     }, selector);
     mkdirSync(SHOTS, { recursive: true });
     const { data } = await this.send("Page.captureScreenshot", {
@@ -434,9 +375,7 @@ class Page {
 
   async close() {
     this.off();
-    await this.cdp
-      .send("Target.closeTarget", { targetId: this.targetId })
-      .catch(() => {});
+    await this.cdp.send("Target.closeTarget", { targetId: this.targetId }).catch(() => {});
   }
 }
 
@@ -487,9 +426,7 @@ function parseArgs(argv) {
 
 async function main() {
   if (!existsSync(path.join(SITE, "index.html"))) {
-    console.error(
-      `no site at ${SITE}; run site/assemble.sh build/site . first`,
-    );
+    console.error(`no site at ${SITE}; run site/assemble.sh build/site . first`);
     process.exit(2);
   }
   const { tier, filter } = parseArgs(process.argv.slice(2));
@@ -519,13 +456,8 @@ async function main() {
         deviceScaleFactor,
         media,
       } = {}) => {
-        const { targetId } = await cdp.send("Target.createTarget", {
-          url: "about:blank",
-        });
-        const { sessionId } = await cdp.send("Target.attachToTarget", {
-          targetId,
-          flatten: true,
-        });
+        const { targetId } = await cdp.send("Target.createTarget", { url: "about:blank" });
+        const { sessionId } = await cdp.send("Target.attachToTarget", { targetId, flatten: true });
         const page = new Page(cdp, sessionId, targetId, base);
         pages.push(page);
         await page.send("Page.enable");
@@ -540,10 +472,7 @@ async function main() {
         await Promise.race([
           fn({ newPage, base }),
           new Promise((_, reject) => {
-            timer = setTimeout(
-              () => reject(new Error("test timed out")),
-              TEST_TIMEOUT,
-            );
+            timer = setTimeout(() => reject(new Error("test timed out")), TEST_TIMEOUT);
           }),
         ]).finally(() => clearTimeout(timer));
         for (const page of pages) {
@@ -562,9 +491,7 @@ async function main() {
     server.close();
   }
   const secs = ((Date.now() - started) / 1000).toFixed(1);
-  console.log(
-    `${failed ? `${failed} failed` : "all passed"} (tier ${tier}, ${secs} s)`,
-  );
+  console.log(`${failed ? `${failed} failed` : "all passed"} (tier ${tier}, ${secs} s)`);
   process.exit(failed ? 1 : 0);
 }
 
@@ -603,23 +530,17 @@ const frameState = (page) =>
         };
       })
       .sort((a, b) => a.id.localeCompare(b.id));
-    const pen = [...world.querySelectorAll(".pen-mark, .pen-note")].map(
-      (el) => ({
-        layer: el.parentElement.dataset.actor ?? "world",
-        cls: el.getAttribute("class"),
-        kind: el.dataset.kind ?? null,
-        ink: el.dataset.ink,
-        at: [el.style.left, el.style.top],
-        d: [...el.querySelectorAll("path")]
-          .map((p) => p.getAttribute("d"))
-          .join(" | "),
-        drawn: [...el.querySelectorAll("path")].map(
-          (p) => getComputedStyle(p).strokeDashoffset,
-        ),
-        text: el.classList.contains("pen-note") ? el.textContent : null,
-        clip: getComputedStyle(el).clipPath,
-      }),
-    );
+    const pen = [...world.querySelectorAll(".pen-mark, .pen-note")].map((el) => ({
+      layer: el.parentElement.dataset.actor ?? "world",
+      cls: el.getAttribute("class"),
+      kind: el.dataset.kind ?? null,
+      ink: el.dataset.ink,
+      at: [el.style.left, el.style.top],
+      d: [...el.querySelectorAll("path")].map((p) => p.getAttribute("d")).join(" | "),
+      drawn: [...el.querySelectorAll("path")].map((p) => getComputedStyle(p).strokeDashoffset),
+      text: el.classList.contains("pen-note") ? el.textContent : null,
+      clip: getComputedStyle(el).clipPath,
+    }));
     return {
       scene: film.scene,
       playing: film.playing,
@@ -631,9 +552,7 @@ const frameState = (page) =>
       pen,
       animations: document
         .getAnimations()
-        .filter(
-          (a) => !(a instanceof CSSAnimation) && !(a instanceof CSSTransition),
-        )
+        .filter((a) => !(a instanceof CSSAnimation) && !(a instanceof CSSTransition))
         .filter((a) => a.playState === "running").length,
     };
   });
@@ -662,35 +581,21 @@ const settled = (page) =>
   );
 
 const sceneNames = (page) =>
-  page.eval(async () =>
-    (await import("./scenes.js")).SCENES.map((s) => [s.id, s.name]),
-  );
+  page.eval(async () => (await import("./scenes.js")).SCENES.map((s) => [s.id, s.name]));
 
 // --- Tests: the film -------------------------------------------------------------------------
 
-test("smoke: the page loads without errors in light and dark", async ({
-  newPage,
-}) => {
+test("smoke: the page loads without errors in light and dark", async ({ newPage }) => {
   for (const theme of ["light", "dark"]) {
-    const page = await newPage({
-      media: [{ name: "prefers-color-scheme", value: theme }],
-    });
+    const page = await newPage({ media: [{ name: "prefers-color-scheme", value: theme }] });
     // Console errors and failed loads (404s), besides the uncaught exceptions every test checks.
     const errors = [];
     const off = page.cdp.on((msg) => {
       if (msg.sessionId !== page.sessionId) return;
-      if (
-        msg.method === "Runtime.consoleAPICalled" &&
-        msg.params.type === "error"
-      ) {
-        errors.push(
-          msg.params.args.map((a) => a.value ?? a.description).join(" "),
-        );
+      if (msg.method === "Runtime.consoleAPICalled" && msg.params.type === "error") {
+        errors.push(msg.params.args.map((a) => a.value ?? a.description).join(" "));
       }
-      if (
-        msg.method === "Log.entryAdded" &&
-        msg.params.entry.level === "error"
-      ) {
+      if (msg.method === "Log.entryAdded" && msg.params.entry.level === "error") {
         errors.push(`${msg.params.entry.text} ${msg.params.entry.url ?? ""}`);
       }
     });
@@ -714,9 +619,7 @@ test("film: a jump during a camera move renders the scene's end frame, and it st
   const page = await newPage();
   await page.goto("/");
   await page.waitFor(() => window.__demo.film.playing);
-  await page.waitFor(() => window.__demo.film.camera.moving, {
-    timeout: 20_000,
-  });
+  await page.waitFor(() => window.__demo.film.camera.moving, { timeout: 20_000 });
   await page.eval(() => {
     window.__demo.film.goTo(2);
     window.__demo.film.goTo(1);
@@ -726,16 +629,9 @@ test("film: a jump during a camera move renders the scene's end frame, and it st
   assert.equal(jumped.playing, false, "jumping pauses");
   assert.equal(jumped.animations, 0, "nothing in flight");
   assert.equal(jumped.ghosts, 0, "no fading leftovers");
-  assert.ok(
-    jumped.actors.length >= 2 && jumped.pen.length >= 2,
-    "the scene is on the desk",
-  );
+  assert.ok(jumped.actors.length >= 2 && jumped.pen.length >= 2, "the scene is on the desk");
   await page.eval(() => window.__demo.film.renderEnd(1));
-  assert.deepEqual(
-    await frameState(page),
-    jumped,
-    "a fresh end frame is the same frame",
-  );
+  assert.deepEqual(await frameState(page), jumped, "a fresh end frame is the same frame");
   await sleep(2000); // an aborted cue must not draw anything later
   assert.deepEqual(await frameState(page), jumped, "nothing changes 2 s later");
 });
@@ -745,54 +641,33 @@ test("film: a jump while a type cue types renders the scene's end frame, and it 
 }) => {
   const page = await newPage();
   await page.goto("/");
-  await page.waitFor(() => window.__demo.film.busy.includes("type"), {
-    timeout: 20_000,
-  });
+  await page.waitFor(() => window.__demo.film.busy.includes("type"), { timeout: 20_000 });
   const partial = await page.eval(
     () => document.querySelector(".film-world .is-typing")?.textContent,
   );
   assert.equal(typeof partial, "string", "a file name is being typed");
   await page.eval(() => window.__demo.film.goTo(2));
   const jumped = await frameState(page);
-  assert.deepEqual(
-    [jumped.scene, jumped.playing, jumped.typing],
-    [2, false, 0],
-  );
+  assert.deepEqual([jumped.scene, jumped.playing, jumped.typing], [2, false, 0]);
   await page.eval(() => window.__demo.film.renderEnd(2));
-  assert.deepEqual(
-    await frameState(page),
-    jumped,
-    "a fresh end frame is the same frame",
-  );
+  assert.deepEqual(await frameState(page), jumped, "a fresh end frame is the same frame");
   await sleep(2000);
   assert.deepEqual(await frameState(page), jumped, "nothing changes 2 s later");
   // Back to scene 1: its file names are typed in full.
   const names = await page.eval(() => {
     window.__demo.film.goTo(0);
-    return [...document.querySelectorAll(".film-world .copy-file-name")].map(
-      (n) => n.textContent,
-    );
+    return [...document.querySelectorAll(".film-world .copy-file-name")].map((n) => n.textContent);
   });
-  assert.deepEqual(names, [
-    "resume_v2.pdf",
-    "resume_final.pdf",
-    "resume_FINAL_v3.pdf",
-  ]);
+  assert.deepEqual(names, ["resume_v2.pdf", "resume_final.pdf", "resume_FINAL_v3.pdf"]);
 });
 
-test("film: playing each scene through ends on the frame a jump renders", async ({
-  newPage,
-}) => {
+test("film: playing each scene through ends on the frame a jump renders", async ({ newPage }) => {
   // Four times the speed (timers through ?speed, animations through the protocol): the same
   // frames, sooner.
   const page = await newPage();
   await page.animationSpeed(4);
   await page.goto("/?speed=4");
-  assert.equal(
-    await page.eval(() => window.__demo.film.speed),
-    4,
-    "?speed is read",
-  );
+  assert.equal(await page.eval(() => window.__demo.film.speed), 4, "?speed is read");
   const steps = await page.eval(async () =>
     (await import("./scenes.js")).SCENES.map((s) => s.steps.length),
   );
@@ -811,11 +686,7 @@ test("film: playing each scene through ends on the frame a jump renders", async 
     const played = await frameState(page);
     assert.equal(played.ghosts, 0, `scene ${n + 1}: no fading leftovers`);
     await page.eval((i) => window.__demo.film.renderEnd(i), n);
-    assert.deepEqual(
-      await frameState(page),
-      played,
-      `scene ${n + 1}: played = end frame`,
-    );
+    assert.deepEqual(await frameState(page), played, `scene ${n + 1}: played = end frame`);
     await page.eval(() => window.__demo.film.play()); // on to the next scene
   }
 });
@@ -859,8 +730,7 @@ test("film: every scene plays from a jump to it", async ({ newPage }) => {
       const { film } = window.__demo;
       const errors = [];
       const error = console.error;
-      console.error = (...args) =>
-        errors.push(`${film.scene + 1}: ${args[0]?.message ?? args[0]}`);
+      console.error = (...args) => errors.push(`${film.scene + 1}: ${args[0]?.message ?? args[0]}`);
       const out = [];
       try {
         for (let n = 0; n < film.sceneCount; n++) {
@@ -870,9 +740,7 @@ test("film: every scene plays from a jump to it", async ({ newPage }) => {
             await new Promise((r) => setTimeout(r, 10));
           }
           // Still playing (or on to the next scene); the last scene may simply end.
-          out.push(
-            film.playing || film.scene !== n || n === film.sceneCount - 1,
-          );
+          out.push(film.playing || film.scene !== n || n === film.sceneCount - 1);
           film.pause();
         }
       } finally {
@@ -889,17 +757,10 @@ test("film: every scene plays from a jump to it", async ({ newPage }) => {
   }
 });
 
-test("film: a scene's first camera move on a phone runs its course", async ({
-  newPage,
-}) => {
+test("film: a scene's first camera move on a phone runs its course", async ({ newPage }) => {
   // Scene 1's two-line caption gives way to scene 2's one line as scene 2 starts; the move,
   // framed for the new caption, must not be cut short by the caption's resize.
-  const page = await newPage({
-    width: 390,
-    height: 844,
-    mobile: true,
-    deviceScaleFactor: 2,
-  });
+  const page = await newPage({ width: 390, height: 844, mobile: true, deviceScaleFactor: 2 });
   await page.goto("/?speed=8");
   await page.waitFor(() => window.__demo.film.playing);
   const move = await page.eval(
@@ -930,9 +791,7 @@ test("film: a scene's first camera move on a phone runs its course", async ({
   assert.ok(distinct >= 15, `${distinct} distinct camera frames`);
 });
 
-test("film: autoplay starts from an empty desk, with nothing fading", async ({
-  newPage,
-}) => {
+test("film: autoplay starts from an empty desk, with nothing fading", async ({ newPage }) => {
   const page = await newPage();
   // Counts every element that ever fades out (data-ghost) from the first script on.
   await page.send("Page.addScriptToEvaluateOnNewDocument", {
@@ -944,25 +803,12 @@ test("film: autoplay starts from an empty desk, with nothing fading", async ({
     `,
   });
   await page.goto("/");
-  await page.waitFor(() => window.__demo.film.busy.includes("type"), {
-    timeout: 15_000,
-  });
-  assert.equal(
-    await page.eval(() => window.__ghosts),
-    0,
-    "no end frame dissolves at autoplay",
-  );
+  await page.waitFor(() => window.__demo.film.busy.includes("type"), { timeout: 15_000 });
+  assert.equal(await page.eval(() => window.__ghosts), 0, "no end frame dissolves at autoplay");
 });
 
-test("film: a tap on the controls doesn't keep them from fading", async ({
-  newPage,
-}) => {
-  const page = await newPage({
-    width: 390,
-    height: 844,
-    mobile: true,
-    deviceScaleFactor: 2,
-  });
+test("film: a tap on the controls doesn't keep them from fading", async ({ newPage }) => {
+  const page = await newPage({ width: 390, height: 844, mobile: true, deviceScaleFactor: 2 });
   await page.goto("/");
   await page.waitFor(() => window.__demo.film.playing);
   const at = await page.eval(() => {
@@ -971,54 +817,34 @@ test("film: a tap on the controls doesn't keep them from fading", async ({
   });
   await page.tap(at.x, at.y); // a touch leaves :hover on what it touched
   assert.equal(await page.eval(() => window.__demo.film.playing), true);
-  await page.waitFor(
-    () => document.getElementById("film").dataset.controls === "hidden",
-    {
-      timeout: 6000,
-    },
-  );
+  await page.waitFor(() => document.getElementById("film").dataset.controls === "hidden", {
+    timeout: 6000,
+  });
 });
 
 test("film: a chapter's tooltip shows on hover and keyboard focus, not after a tap", async ({
   newPage,
 }) => {
   const opacity = () =>
-    getComputedStyle(document.querySelector('.fc-seg[data-scene="5"] .fc-tip'))
-      .opacity;
+    getComputedStyle(document.querySelector('.fc-seg[data-scene="5"] .fc-tip')).opacity;
   const shown = () =>
-    getComputedStyle(document.querySelector('.fc-seg[data-scene="5"] .fc-tip'))
-      .opacity === "1";
+    getComputedStyle(document.querySelector('.fc-seg[data-scene="5"] .fc-tip')).opacity === "1";
   const can = (page) =>
     page.eval(() => ({
       hover: matchMedia("(hover: hover)").matches,
       fine: matchMedia("(pointer: fine)").matches,
     }));
   // A phone: a tap leaves :hover on the segment, and the tooltip would stay over the caption.
-  const phone = await newPage({
-    width: 390,
-    height: 844,
-    mobile: true,
-    deviceScaleFactor: 2,
-  });
+  const phone = await newPage({ width: 390, height: 844, mobile: true, deviceScaleFactor: 2 });
   await phone.goto("/");
   await pausedFilm(phone);
-  assert.deepEqual(
-    await can(phone),
-    { hover: false, fine: false },
-    "a phone: touch only",
-  );
+  assert.deepEqual(await can(phone), { hover: false, fine: false }, "a phone: touch only");
   const at = await phone.eval(() => {
-    const r = document
-      .querySelector('.fc-seg[data-scene="5"]')
-      .getBoundingClientRect();
+    const r = document.querySelector('.fc-seg[data-scene="5"]').getBoundingClientRect();
     return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
   });
   await phone.tap(at.x, at.y);
-  assert.equal(
-    await phone.eval(() => window.__demo.film.scene),
-    4,
-    "the tap jumped",
-  );
+  assert.equal(await phone.eval(() => window.__demo.film.scene), 4, "the tap jumped");
   await sleep(400); // the tooltip fades in over 150 ms
   await phone.screenshot("film-tooltip-after-tap-390x844");
   assert.equal(await phone.eval(opacity), "0", "no tooltip after a tap");
@@ -1026,23 +852,14 @@ test("film: a chapter's tooltip shows on hover and keyboard focus, not after a t
   const desk = await newPage();
   await desk.goto("/");
   await pausedFilm(desk);
-  assert.deepEqual(
-    await can(desk),
-    { hover: true, fine: true },
-    "a desktop: a mouse",
-  );
+  assert.deepEqual(await can(desk), { hover: true, fine: true }, "a desktop: a mouse");
   const r = await desk.eval(() =>
-    document
-      .querySelector('.fc-seg[data-scene="5"]')
-      .getBoundingClientRect()
-      .toJSON(),
+    document.querySelector('.fc-seg[data-scene="5"]').getBoundingClientRect().toJSON(),
   );
   await desk.mouse(r.left + r.width / 2, r.top + r.height / 2);
   await desk.waitFor(shown, { timeout: 3000 });
   await desk.mouse(5, 300);
-  await desk.eval(() =>
-    document.querySelector('.fc-seg[data-scene="4"]').focus(),
-  );
+  await desk.eval(() => document.querySelector('.fc-seg[data-scene="4"]').focus());
   await desk.key("Tab");
   await desk.waitFor(shown, { timeout: 3000 });
 });
@@ -1057,18 +874,14 @@ test("film: a failing cue stops playback cleanly", async ({ newPage }) => {
     const run = CUES.type.run;
     const logged = [];
     const error = console.error;
-    console.error = (...args) =>
-      logged.push(String(args[0]?.message ?? args[0]));
+    console.error = (...args) => logged.push(String(args[0]?.message ?? args[0]));
     CUES.type.run = () => Promise.reject(new Error("a broken cue"));
     try {
       film.goTo(0);
       film.play();
-      for (let i = 0; i < 200 && film.playing; i++)
-        await new Promise((r) => setTimeout(r, 20));
+      for (let i = 0; i < 200 && film.playing; i++) await new Promise((r) => setTimeout(r, 20));
       const after = { playing: film.playing, animating: film.animating };
-      const label = document
-        .querySelector('[data-ctl="play"]')
-        .getAttribute("aria-label");
+      const label = document.querySelector('[data-ctl="play"]').getAttribute("aria-label");
       CUES.type.run = run;
       film.play();
       return { after, label, logged, again: film.playing };
@@ -1086,9 +899,7 @@ test("film: a failing cue stops playback cleanly", async ({ newPage }) => {
   });
 });
 
-test("film: control clicks before the film is ready are ignored", async ({
-  newPage,
-}) => {
+test("film: control clicks before the film is ready are ignored", async ({ newPage }) => {
   const page = await newPage();
   // Holds the film's font loads (it waits for them) until the test lets them go.
   await page.send("Page.addScriptToEvaluateOnNewDocument", {
@@ -1113,8 +924,7 @@ test("film: control clicks before the film is ready are ignored", async ({
   await page.waitFor(() => Boolean(window.__demo));
   const got = await page.eval(() => ({
     scene: window.__demo.film.scene,
-    interactions: window.__demo.events.filter((e) => e.name === "interact")
-      .length,
+    interactions: window.__demo.events.filter((e) => e.name === "interact").length,
   }));
   assert.deepEqual(got, { scene: 0, interactions: 0 });
 });
@@ -1133,11 +943,7 @@ test("film: the overlay layer is outside the aria-hidden world and is cleared pe
     link.textContent = "a real link";
     overlay?.append(link);
     window.__demo.film.goTo(1);
-    return {
-      exists: Boolean(overlay),
-      hidden: Boolean(hidden),
-      left: overlay?.children.length,
-    };
+    return { exists: Boolean(overlay), hidden: Boolean(hidden), left: overlay?.children.length };
   });
   assert.deepEqual(got, { exists: true, hidden: false, left: 0 });
 });
@@ -1171,9 +977,7 @@ test("scenes: a kept replica, updated, is the replica its enter cue would build"
     });
     // The end of a scene: another state, a highlight, pen marks, the real PDF on top.
     const kept = make("kept", { state: "granary", highlight: ["w-birds"] });
-    markInstant(kept.querySelector('[data-id="w-birds"]'), "circle", {
-      layer: kept,
-    });
+    markInstant(kept.querySelector('[data-id="w-birds"]'), "circle", { layer: kept });
     noteInstant("moved up!", { x: 10, y: 10 }, { layer: kept });
     kept.dataset.proof = "";
     const props = { state: "canonical", highlight: ["windowsill"] };
@@ -1205,10 +1009,7 @@ test("scenes: scene 2's pen mark on the role keeps clear of the bullet under it"
     const s = window.__demo.film.camera.view.s;
     return { overlap: (mark.bottom - text.top) / s + 1.3 }; // + half the pen's stroke
   });
-  assert.ok(
-    got.overlap <= 4,
-    `the mark dips ${got.overlap.toFixed(1)} units into the bullet`,
-  );
+  assert.ok(got.overlap <= 4, `the mark dips ${got.overlap.toFixed(1)} units into the bullet`);
 });
 
 test("scenes: the replica folds to one page, then gets the new role on top", async ({
@@ -1233,18 +1034,8 @@ test("scenes: the replica folds to one page, then gets the new role on top", asy
     return out;
   });
   assert.equal(got.length, 9, "nine scenes");
-  assert.deepEqual(got[5], {
-    state: "granary",
-    pages: 1,
-    first: "windowsill",
-    term: false,
-  });
-  assert.deepEqual(got[7], {
-    state: "updated",
-    pages: 2,
-    first: "granary",
-    term: false,
-  });
+  assert.deepEqual(got[5], { state: "granary", pages: 1, first: "windowsill", term: false });
+  assert.deepEqual(got[7], { state: "updated", pages: 2, first: "granary", term: false });
   // The terminal is a card on the desk for the input scenes (4, 5) and leaves after.
   assert.deepEqual(
     got.map((s) => s.term),
@@ -1253,27 +1044,13 @@ test("scenes: the replica folds to one page, then gets the new role on top", asy
   // Scene 8 types on a terminal before it leaves.
   const enters = await page.eval(async () =>
     (await import("./scenes.js")).SCENES.map((s) =>
-      s.steps.some((st) =>
-        (st.cues ?? []).some((c) => c.do === "enter" && c.kind === "terminal"),
-      ),
+      s.steps.some((st) => (st.cues ?? []).some((c) => c.do === "enter" && c.kind === "terminal")),
     ),
   );
-  assert.deepEqual(enters, [
-    false,
-    false,
-    false,
-    true,
-    true,
-    false,
-    false,
-    true,
-    false,
-  ]);
+  assert.deepEqual(enters, [false, false, false, true, true, false, false, true, false]);
 });
 
-test("scenes: the terminal's lines are the ones the real commands print", async ({
-  newPage,
-}) => {
+test("scenes: the terminal's lines are the ones the real commands print", async ({ newPage }) => {
   const page = await newPage();
   await page.goto("/");
   await pausedFilm(page);
@@ -1361,10 +1138,7 @@ test("cues: Nangnang stamps the tag; confetti falls and leaves nothing behind", 
     { args: [last], timeout: 30_000 },
   );
   await page.eval(() => window.__demo.film.pause());
-  assert.equal(
-    await page.eval(() => document.querySelectorAll(".confetti").length),
-    0,
-  );
+  assert.equal(await page.eval(() => document.querySelectorAll(".confetti").length), 0);
 });
 
 test("cues: no confetti with reduced motion", async ({ newPage }) => {
@@ -1399,11 +1173,7 @@ test("film: every shot frames its target inside the free area at every size", as
   const PHONES = new Set(["390x844", "844x390"]);
   const problems = [];
   for (const [width, height] of SIZES) {
-    const page = await newPage({
-      width,
-      height,
-      mobile: width < 800 || height < 500,
-    });
+    const page = await newPage({ width, height, mobile: width < 800 || height < 500 });
     await page.goto("/");
     await pausedFilm(page);
     const shots = await page.eval(async () => {
@@ -1418,25 +1188,16 @@ test("film: every shot frames its target inside the free area at every size", as
             left: box.left,
             right: box.right,
             top: box.top,
-            bottom: document
-              .querySelector(".film-caption")
-              .getBoundingClientRect().top,
+            bottom: document.querySelector(".film-caption").getBoundingClientRect().top,
           };
           const at = `scene ${n + 1} step ${k + 1}`;
-          const onDesk = [...film.world.querySelectorAll(".pen-note")].map(
-            (el) => {
-              const r = el.getBoundingClientRect();
-              return {
-                text: el.textContent,
-                r: {
-                  left: r.left,
-                  right: r.right,
-                  top: r.top,
-                  bottom: r.bottom,
-                },
-              };
-            },
-          );
+          const onDesk = [...film.world.querySelectorAll(".pen-note")].map((el) => {
+            const r = el.getBoundingClientRect();
+            return {
+              text: el.textContent,
+              r: { left: r.left, right: r.right, top: r.top, bottom: r.bottom },
+            };
+          });
           if (!step.shot) {
             out.push({ at, free, box: box.toJSON(), onDesk });
             return;
@@ -1454,15 +1215,13 @@ test("film: every shot frames its target inside the free area at every size", as
             // The terminal's text on screen (px), for shots on the terminal card.
             termPx:
               target.includes('"term"') && term
-                ? parseFloat(getComputedStyle(term).fontSize) *
-                  film.camera.view.s
+                ? parseFloat(getComputedStyle(term).fontSize) * film.camera.view.s
                 : null,
             // The replica's body text on screen (px), for shots on its content.
             resumePx:
               target.includes('"actor":"resume"') && resume
-                ? parseFloat(
-                    getComputedStyle(resume.querySelector(".resume")).fontSize,
-                  ) * film.camera.view.s
+                ? parseFloat(getComputedStyle(resume.querySelector(".resume")).fontSize) *
+                  film.camera.view.s
                 : null,
             notes: (step.cues ?? [])
               .filter((c) => c.do === "note" && c.id)
@@ -1472,17 +1231,10 @@ test("film: every shot frames its target inside the free area at every size", as
                   .getBoundingClientRect();
                 return {
                   id: c.id,
-                  r: {
-                    left: r.left,
-                    right: r.right,
-                    top: r.top,
-                    bottom: r.bottom,
-                  },
+                  r: { left: r.left, right: r.right, top: r.top, bottom: r.bottom },
                 };
               }),
-            card: term
-              ? { narrow: term.offsetWidth < 1000, portrait: a.w < a.h * 0.9 }
-              : null,
+            card: term ? { narrow: term.offsetWidth < 1000, portrait: a.w < a.h * 0.9 } : null,
           });
         });
       });
@@ -1503,12 +1255,7 @@ test("film: every shot frames its target inside the free area at every size", as
       const scrim = s.free.bottom - 56;
       for (const n of s.onDesk) {
         const { left, right, top } = n.r;
-        if (
-          top >= scrim ||
-          right <= s.box.left ||
-          left >= s.box.right ||
-          n.r.bottom <= s.box.top
-        ) {
+        if (top >= scrim || right <= s.box.left || left >= s.box.right || n.r.bottom <= s.box.top) {
           continue; // under the caption, or off the film
         }
         const edges = [
@@ -1517,14 +1264,11 @@ test("film: every shot frames its target inside the free area at every size", as
           top < s.free.top - 2 && "top",
         ].filter(Boolean);
         if (edges.length) {
-          problems.push(
-            `${at}: note "${n.text}" cut at the film's ${edges.join(" and ")} edge`,
-          );
+          problems.push(`${at}: note "${n.text}" cut at the film's ${edges.join(" and ")} edge`);
         }
       }
       if (!s.focus) continue; // a step without a shot of its own
-      if (!inside(s.focus, s.free))
-        problems.push(`${at}: focus outside the free area`);
+      if (!inside(s.focus, s.free)) problems.push(`${at}: focus outside the free area`);
       if (s.termPx !== null && s.termPx < 12) {
         problems.push(`${at}: terminal text ${s.termPx.toFixed(1)} px`);
       }
@@ -1532,8 +1276,7 @@ test("film: every shot frames its target inside the free area at every size", as
         problems.push(`${at}: resume text ${s.resumePx.toFixed(1)} px`);
       }
       for (const n of s.notes) {
-        if (!inside(n.r, s.free))
-          problems.push(`${at}: note "${n.id}" out of view`);
+        if (!inside(n.r, s.free)) problems.push(`${at}: note "${n.id}" out of view`);
       }
       if (s.card && s.card.narrow !== s.card.portrait) {
         problems.push(
@@ -1546,9 +1289,7 @@ test("film: every shot frames its target inside the free area at every size", as
   assert.deepEqual(problems, []);
 });
 
-test("film: a call to action fading out can't be reached", async ({
-  newPage,
-}) => {
+test("film: a call to action fading out can't be reached", async ({ newPage }) => {
   const page = await newPage();
   await page.goto("/");
   await pausedFilm(page);
@@ -1564,9 +1305,7 @@ test("film: a call to action fading out can't be reached", async ({
   assert.deepEqual(got, { fading: true, inert: true });
 });
 
-test("cues: the stamp's impact jolts the stamp with the paper", async ({
-  newPage,
-}) => {
+test("cues: the stamp's impact jolts the stamp with the paper", async ({ newPage }) => {
   const page = await newPage();
   await page.goto("/?speed=2");
   await pausedFilm(page);
@@ -1580,58 +1319,33 @@ test("cues: the stamp's impact jolts the stamp with the paper", async ({
     const jolts = (el) =>
       el
         .getAnimations()
-        .filter((a) =>
-          a.effect.getKeyframes().some((f) => f.translate === "0px 7px"),
-        ).length;
-    const out = {
-      resume: jolts(film.actor("resume")),
-      stamp: jolts(film.actor("tag")),
-    };
+        .filter((a) => a.effect.getKeyframes().some((f) => f.translate === "0px 7px")).length;
+    const out = { resume: jolts(film.actor("resume")), stamp: jolts(film.actor("tag")) };
     film.pause();
     return out;
   });
   assert.deepEqual(got, { resume: 1, stamp: 1 });
 });
 
-test("film: a scripted run emits act 1–9, then complete", async ({
-  newPage,
-}) => {
+test("film: a scripted run emits act 1–9, then complete", async ({ newPage }) => {
   const page = await newPage();
   await page.animationSpeed(16);
   await page.goto("/?speed=16");
   await page.waitFor(() => window.__demo.film.playing);
-  await page.waitFor(
-    () => window.__demo.events.some((e) => e.name === "complete"),
-    {
-      timeout: 60_000,
-    },
-  );
+  await page.waitFor(() => window.__demo.events.some((e) => e.name === "complete"), {
+    timeout: 60_000,
+  });
   const events = await page.eval(() =>
-    window.__demo.events.filter(
-      (e) => e.name === "act" || e.name === "complete",
-    ),
+    window.__demo.events.filter((e) => e.name === "act" || e.name === "complete"),
   );
   const names = await sceneNames(page);
   assert.deepEqual(events, [
-    ...names.map(([id], i) => ({
-      name: "act",
-      params: { act: i + 1, act_name: id },
-    })),
+    ...names.map(([id], i) => ({ name: "act", params: { act: i + 1, act_name: id } })),
     { name: "complete", params: { method: "autoplay" } },
   ]);
   assert.deepEqual(
     names.map(([id]) => id),
-    [
-      "problem",
-      "meet",
-      "job",
-      "prompt",
-      "plan",
-      "tailor",
-      "ship",
-      "update",
-      "cta",
-    ],
+    ["problem", "meet", "job", "prompt", "plan", "tailor", "ship", "update", "cta"],
   );
 });
 
@@ -1668,21 +1382,14 @@ test("film: scene 9's call to action is a real link, outside the aria-hidden wor
       hidden: false,
       tab: 0,
     },
-    {
-      href: "https://github.com/h1994st/my-resume",
-      text: "GitHub",
-      hidden: false,
-      tab: 0,
-    },
+    { href: "https://github.com/h1994st/my-resume", text: "GitHub", hidden: false, tab: 0 },
   ]);
   // Tab reaches it (after the header, before the film's controls).
   await page.eval(() => document.getElementById("theme-toggle").focus());
   let reached = false;
   for (let i = 0; i < 20 && !reached; i++) {
     await page.key("Tab");
-    reached = await page.eval(() =>
-      Boolean(document.activeElement?.closest(".film-overlay")),
-    );
+    reached = await page.eval(() => Boolean(document.activeElement?.closest(".film-overlay")));
   }
   assert.ok(reached, "Tab reaches the call to action");
   // Gone from other scenes.
@@ -1695,27 +1402,21 @@ test("film: scene 9's call to action is a real link, outside the aria-hidden wor
   );
 });
 
-test("film: the controls fade after 2.5 s while playing and come back", async ({
-  newPage,
-}) => {
+test("film: the controls fade after 2.5 s while playing and come back", async ({ newPage }) => {
   const page = await newPage();
   await page.goto("/");
   await page.waitFor(() => window.__demo.film.playing);
   const controls = () =>
     page.eval(() => ({
       state: document.getElementById("film").dataset.controls,
-      opacity: getComputedStyle(document.querySelector(".film-controls"))
-        .opacity,
+      opacity: getComputedStyle(document.querySelector(".film-controls")).opacity,
     }));
-  const hidden = () =>
-    document.getElementById("film").dataset.controls === "hidden";
+  const hidden = () => document.getElementById("film").dataset.controls === "hidden";
   let t0 = Date.now();
   await page.waitFor(hidden, { timeout: 8000 });
   assert.ok(Date.now() - t0 >= 2000, `hidden after ${Date.now() - t0} ms`);
   await page.waitFor(
-    () =>
-      getComputedStyle(document.querySelector(".film-controls")).opacity ===
-      "0",
+    () => getComputedStyle(document.querySelector(".film-controls")).opacity === "0",
   );
   // Pointer movement brings them back, and they fade again.
   await page.mouse(640, 300);
@@ -1740,36 +1441,23 @@ test("film: the controls fade after 2.5 s while playing and come back", async ({
   assert.equal((await controls()).state, "shown", "back on focus");
   await sleep(3000);
   assert.equal((await controls()).state, "shown", "kept while focused");
-  assert.equal(
-    await page.eval(() => window.__demo.film.playing),
-    true,
-    "still playing",
-  );
+  assert.equal(await page.eval(() => window.__demo.film.playing), true, "still playing");
   // Paused: always shown.
   await page.eval(() => {
     document.activeElement.blur();
     window.__demo.film.pause();
   });
   await sleep(3000);
-  assert.deepEqual(
-    await controls(),
-    { state: "shown", opacity: "1" },
-    "shown while paused",
-  );
+  assert.deepEqual(await controls(), { state: "shown", opacity: "1" }, "shown while paused");
 });
 
-test("film: reduced motion: no autoplay, camera cuts, end frames at once", async ({
-  newPage,
-}) => {
+test("film: reduced motion: no autoplay, camera cuts, end frames at once", async ({ newPage }) => {
   const page = await newPage({ media: REDUCED });
   await page.goto("/");
   await page.waitFor(() => window.__demo.film.seen);
   await page.frames(4);
   assert.deepEqual(
-    await page.eval(() => [
-      window.__demo.film.playing,
-      window.__demo.film.scene,
-    ]),
+    await page.eval(() => [window.__demo.film.playing, window.__demo.film.scene]),
     [false, 0],
     "no autoplay",
   );
@@ -1780,26 +1468,15 @@ test("film: reduced motion: no autoplay, camera cuts, end frames at once", async
     const now = getComputedStyle(film.world).transform;
     const moving = film.camera.moving;
     await done;
-    return {
-      cut: before !== now,
-      moving,
-      animations: film.world.getAnimations().length,
-    };
+    return { cut: before !== now, moving, animations: film.world.getAnimations().length };
   });
-  assert.deepEqual(
-    cut,
-    { cut: true, moving: false, animations: 0 },
-    "camera.frame cuts",
-  );
+  assert.deepEqual(cut, { cut: true, moving: false, animations: 0 }, "camera.frame cuts");
   const scripted = () =>
     page.eval(
       () =>
         document
           .getAnimations()
-          .filter(
-            (a) =>
-              !(a instanceof CSSAnimation) && !(a instanceof CSSTransition),
-          ).length,
+          .filter((a) => !(a instanceof CSSAnimation) && !(a instanceof CSSTransition)).length,
     );
   await page.eval(() => window.__demo.film.next());
   assert.equal(await scripted(), 0, "next: no animations");
@@ -1819,9 +1496,7 @@ test("film: reduced motion: no autoplay, camera cuts, end frames at once", async
   );
 });
 
-test("film: keys work only in view and with focus on the page or the film", async ({
-  newPage,
-}) => {
+test("film: keys work only in view and with focus on the page or the film", async ({ newPage }) => {
   const page = await newPage();
   await page.goto("/");
   await page.waitFor(() => window.__demo.film.playing); // autoplay began: the observer has fired
@@ -1838,11 +1513,7 @@ test("film: keys work only in view and with focus on the page or the film", asyn
   await page.key(" ");
   await page.waitFor((y) => scrollY > y, { args: [y0], timeout: 5000 });
   await settled(page); // Space scrolls smoothly: let it finish before scrolling back
-  assert.equal(
-    await page.eval(() => window.__demo.film.playing),
-    false,
-    "space out of view",
-  );
+  assert.equal(await page.eval(() => window.__demo.film.playing), false, "space out of view");
 
   // Back in view, Space toggles playback and the page stays put.
   await page.eval(() => scrollTo(0, 0));
@@ -1850,41 +1521,19 @@ test("film: keys work only in view and with focus on the page or the film", asyn
   await page.waitFor(() => window.__demo.film.inView && scrollY === 0);
   await page.key(" ");
   await page.waitFor(() => window.__demo.film.playing, { timeout: 5000 });
-  assert.equal(
-    await page.eval(() => scrollY),
-    0,
-    "space in view does not scroll",
-  );
+  assert.equal(await page.eval(() => scrollY), 0, "space in view does not scroll");
   await page.key("ArrowRight");
-  assert.equal(
-    await page.eval(() => window.__demo.film.playing),
-    false,
-    "a key jump pauses",
-  );
+  assert.equal(await page.eval(() => window.__demo.film.playing), false, "a key jump pauses");
   await page.key("3");
-  assert.equal(
-    await page.eval(() => window.__demo.film.scene),
-    2,
-    "digit keys jump to scenes",
-  );
+  assert.equal(await page.eval(() => window.__demo.film.scene), 2, "digit keys jump to scenes");
   await page.key("ArrowLeft");
-  assert.equal(
-    await page.eval(() => window.__demo.film.scene),
-    1,
-    "← steps back",
-  );
+  assert.equal(await page.eval(() => window.__demo.film.scene), 1, "← steps back");
 
   // Focus elsewhere on the page: the keys are the page's.
-  await page.eval(() =>
-    document.querySelector("#get-started a").focus({ preventScroll: true }),
-  );
+  await page.eval(() => document.querySelector("#get-started a").focus({ preventScroll: true }));
   await page.key("ArrowRight");
   await page.key("1");
-  assert.equal(
-    await page.eval(() => window.__demo.film.scene),
-    1,
-    "keys ignored",
-  );
+  assert.equal(await page.eval(() => window.__demo.film.scene), 1, "keys ignored");
 });
 
 // Resolves once an IntersectionObserver made now sees the film `visible` (in view: at least half
@@ -1923,9 +1572,7 @@ test("film: playback pauses out of view or in a hidden tab, and resumes when bac
   const state = () =>
     page.eval(() => ({
       playing: window.__demo.film.playing,
-      acts: window.__demo.events.filter(
-        (e) => e.name === "act" || e.name === "complete",
-      ).length,
+      acts: window.__demo.events.filter((e) => e.name === "act" || e.name === "complete").length,
       live: document.querySelector("[data-film-live]").textContent,
     }));
   const away = async () => {
@@ -1941,10 +1588,7 @@ test("film: playback pauses out of view or in a hidden tab, and resumes when bac
   };
   const hide = (hidden) =>
     page.eval((h) => {
-      Object.defineProperty(document, "hidden", {
-        configurable: true,
-        get: () => h,
-      });
+      Object.defineProperty(document, "hidden", { configurable: true, get: () => h });
       document.dispatchEvent(new Event("visibilitychange"));
     }, hidden);
 
@@ -1989,55 +1633,26 @@ test("film: Space plays and pauses after a click on a chapter, prev, or next", a
     page.eval(() => ({
       scene: window.__demo.film.scene,
       playing: window.__demo.film.playing,
-      focus:
-        document.activeElement.dataset.scene ??
-        document.activeElement.dataset.ctl ??
-        null,
+      focus: document.activeElement.dataset.scene ?? document.activeElement.dataset.ctl ?? null,
     }));
   await page.click('.fc-seg[data-scene="3"]');
-  assert.deepEqual(
-    await state(),
-    { scene: 2, playing: false, focus: "3" },
-    "chapter 3",
-  );
+  assert.deepEqual(await state(), { scene: 2, playing: false, focus: "3" }, "chapter 3");
   await page.key(" ");
-  assert.deepEqual(
-    await state(),
-    { scene: 2, playing: true, focus: "3" },
-    "Space plays",
-  );
+  assert.deepEqual(await state(), { scene: 2, playing: true, focus: "3" }, "Space plays");
   await page.key(" ");
-  assert.deepEqual(
-    await state(),
-    { scene: 2, playing: false, focus: "3" },
-    "Space pauses",
-  );
+  assert.deepEqual(await state(), { scene: 2, playing: false, focus: "3" }, "Space pauses");
   await page.click('[data-ctl="next"]');
   await page.key(" ");
-  assert.deepEqual(
-    await state(),
-    { scene: 3, playing: true, focus: "next" },
-    "after next",
-  );
+  assert.deepEqual(await state(), { scene: 3, playing: true, focus: "next" }, "after next");
   await page.click('[data-ctl="prev"]');
   await page.key(" ");
-  assert.deepEqual(
-    await state(),
-    { scene: 2, playing: true, focus: "prev" },
-    "after prev",
-  );
+  assert.deepEqual(await state(), { scene: 2, playing: true, focus: "prev" }, "after prev");
   // The play button is a button: Space clicks it (one "play", no "key" too).
   await page.click('[data-ctl="play"]');
   await page.key(" ");
-  assert.deepEqual(
-    await state(),
-    { scene: 2, playing: true, focus: "play" },
-    "play button",
-  );
+  assert.deepEqual(await state(), { scene: 2, playing: true, focus: "play" }, "play button");
   const methods = await page.eval(() =>
-    window.__demo.events
-      .filter((e) => e.name === "interact")
-      .map((e) => e.params.method),
+    window.__demo.events.filter((e) => e.name === "interact").map((e) => e.params.method),
   );
   assert.deepEqual(methods, [
     "chapter",
@@ -2053,12 +1668,7 @@ test("film: Space plays and pauses after a click on a chapter, prev, or next", a
 });
 
 test("film: controls, swipes, and events", async ({ newPage }) => {
-  const page = await newPage({
-    width: 390,
-    height: 844,
-    mobile: true,
-    deviceScaleFactor: 2,
-  });
+  const page = await newPage({ width: 390, height: 844, mobile: true, deviceScaleFactor: 2 });
   await page.goto("/");
   await pausedFilm(page);
   const names = await sceneNames(page);
@@ -2066,9 +1676,7 @@ test("film: controls, swipes, and events", async ({ newPage }) => {
     window.__demo.events.length = 0;
   });
   const scene = () => page.eval(() => window.__demo.film.scene);
-  await page.eval(() =>
-    document.querySelector('.fc-seg[data-scene="2"]').click(),
-  );
+  await page.eval(() => document.querySelector('.fc-seg[data-scene="2"]').click());
   assert.equal(await scene(), 1, "a chapter jumps to its scene");
   await page.eval(() => document.querySelector('[data-ctl="next"]').click());
   assert.equal(await scene(), 2, "next");
@@ -2092,26 +1700,19 @@ test("film: controls, swipes, and events", async ({ newPage }) => {
   );
   assert.deepEqual(
     chapters,
-    names.map(([, name], i) => [
-      `Scene ${i + 1}: ${name}`,
-      i === 1 ? "step" : null,
-    ]),
+    names.map(([, name], i) => [`Scene ${i + 1}: ${name}`, i === 1 ? "step" : null]),
   );
   // The play button toggles.
   await page.eval(() => document.querySelector('[data-ctl="play"]').click());
   assert.equal(await page.eval(() => window.__demo.film.playing), true);
   assert.equal(
-    await page.eval(() =>
-      document.querySelector('[data-ctl="play"]').getAttribute("aria-label"),
-    ),
+    await page.eval(() => document.querySelector('[data-ctl="play"]').getAttribute("aria-label")),
     "Pause",
   );
   await page.eval(() => document.querySelector('[data-ctl="play"]').click());
   assert.equal(await page.eval(() => window.__demo.film.playing), false);
   // To the end.
-  await page.eval(() =>
-    window.__demo.film.goTo(window.__demo.film.sceneCount - 1),
-  );
+  await page.eval(() => window.__demo.film.goTo(window.__demo.film.sceneCount - 1));
   const events = await page.eval(() => window.__demo.events);
   assert.deepEqual(
     events.filter((e) => e.name === "interact").map((e) => e.params.method),
@@ -2122,17 +1723,12 @@ test("film: controls, swipes, and events", async ({ newPage }) => {
     events.filter((e) => e.name === "act").map((e) => e.params),
     [1, 2, 1, 0, 1, last].map((i) => ({ act: i + 1, act_name: names[i][0] })),
   );
-  assert.deepEqual(events.at(-1), {
-    name: "complete",
-    params: { method: "manual" },
-  });
+  assert.deepEqual(events.at(-1), { name: "complete", params: { method: "manual" } });
   // The live region names the scene; the transcript has every caption.
   const a11y = await page.eval(() => ({
     live: document.querySelector("[data-film-live]").textContent,
     role: document.getElementById("film").getAttribute("aria-roledescription"),
-    hidden: document
-      .querySelector(".film-viewport")
-      .getAttribute("aria-hidden"),
+    hidden: document.querySelector(".film-viewport").getAttribute("aria-hidden"),
     transcript: document.querySelector(".film .visually-hidden ol").textContent,
   }));
   assert.match(a11y.live, new RegExp(`^Scene ${last + 1} of ${last + 1}, `));
@@ -2147,12 +1743,8 @@ test("film: controls, swipes, and events", async ({ newPage }) => {
         .trim(),
     ),
   );
-  for (const c of captions)
-    assert.ok(a11y.transcript.includes(c), `transcript: ${c}`);
-  assert.ok(
-    !/\p{Extended_Pictographic}/u.test(a11y.transcript),
-    "no emoji in the transcript",
-  );
+  for (const c of captions) assert.ok(a11y.transcript.includes(c), `transcript: ${c}`);
+  assert.ok(!/\p{Extended_Pictographic}/u.test(a11y.transcript), "no emoji in the transcript");
   // A swipe that starts on the controls doesn't step.
   for (const sel of [".fc-chapters", ".fc-buttons"]) {
     const at = await page.eval((s) => {
@@ -2169,30 +1761,17 @@ test("film: controls, swipes, and events", async ({ newPage }) => {
   );
 });
 
-test("film: autoplay starts on its own, as an act, not an interaction", async ({
-  newPage,
-}) => {
+test("film: autoplay starts on its own, as an act, not an interaction", async ({ newPage }) => {
   const page = await newPage();
   await page.goto("/");
   await page.waitFor(() => window.__demo.film.playing);
   const events = await page.eval(() => window.__demo.events);
-  assert.deepEqual(events[0], {
-    name: "act",
-    params: { act: 1, act_name: "problem" },
-  });
-  assert.ok(
-    !events.some((e) => e.name === "interact"),
-    "autoplay is not an interaction",
-  );
+  assert.deepEqual(events[0], { name: "act", params: { act: 1, act_name: "problem" } });
+  assert.ok(!events.some((e) => e.name === "interact"), "autoplay is not an interaction");
 });
 
 test("film: autoplay starts in a phone held sideways", async ({ newPage }) => {
-  const page = await newPage({
-    width: 844,
-    height: 390,
-    mobile: true,
-    deviceScaleFactor: 2,
-  });
+  const page = await newPage({ width: 844, height: 390, mobile: true, deviceScaleFactor: 2 });
   await page.goto("/");
   await page.waitFor(() => window.__demo.film.playing, { timeout: 5000 });
 });
@@ -2238,8 +1817,7 @@ const filmLayout = (page) =>
             .slice(0, 4)
             .map(Number);
         const lum = ([r, g, b]) => {
-          const ch = (v) =>
-            (v /= 255) <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+          const ch = (v) => ((v /= 255) <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
           return 0.2126 * ch(r) + 0.7152 * ch(g) + 0.0722 * ch(b);
         };
         const cs = getComputedStyle(a);
@@ -2263,53 +1841,29 @@ function checkFilmLayout(m, label) {
     r.bottom <= box.bottom + tol;
   const screen = { left: 0, top: 0, right: m.vw, bottom: m.vh };
   const apart = (a, b) =>
-    a.right <= b.left ||
-    a.left >= b.right ||
-    a.bottom <= b.top ||
-    a.top >= b.bottom;
-  assert.ok(
-    m.scrollWidth <= m.vw,
-    `${label}: horizontal scroll (${m.scrollWidth} > ${m.vw})`,
-  );
+    a.right <= b.left || a.left >= b.right || a.bottom <= b.top || a.top >= b.bottom;
+  assert.ok(m.scrollWidth <= m.vw, `${label}: horizontal scroll (${m.scrollWidth} > ${m.vw})`);
   // The film fills the window under the one-line header.
-  assert.ok(
-    near(m.film.top, m.header.bottom) && near(m.film.bottom, m.vh),
-    `${label}: film box`,
-  );
-  assert.ok(
-    near(m.film.left, 0) && near(m.film.right, m.vw),
-    `${label}: film width`,
-  );
+  assert.ok(near(m.film.top, m.header.bottom) && near(m.film.bottom, m.vh), `${label}: film box`);
+  assert.ok(near(m.film.left, 0) && near(m.film.right, m.vw), `${label}: film width`);
   // Controls on screen: 44 px buttons; chapter segments 44 px tall and at least 24 px wide
   // (WCAG 2.5.8; nine of them share a phone's row); the "replay" label clear of them.
   assert.ok(inside(m.controls, screen), `${label}: controls off screen`);
   assert.ok(m.segMin >= 24, `${label}: segments may shrink below 24 px`);
   for (const r of m.buttons) {
-    assert.ok(
-      r.width >= 44 && r.height >= 44,
-      `${label}: a ${r.width}×${r.height} button`,
-    );
+    assert.ok(r.width >= 44 && r.height >= 44, `${label}: a ${r.width}×${r.height} button`);
   }
   for (const r of m.segments) {
-    assert.ok(
-      r.width >= 24 && r.height >= 44,
-      `${label}: a ${r.width}×${r.height} segment`,
-    );
+    assert.ok(r.width >= 24 && r.height >= 44, `${label}: a ${r.width}×${r.height} segment`);
   }
   for (const r of [...m.buttons, ...m.segments]) {
     assert.ok(inside(r, screen), `${label}: a control off screen`);
     assert.ok(apart(r, m.label), `${label}: "replay" overlaps a control`);
   }
-  assert.ok(
-    m.label.width > 0 && inside(m.label, screen),
-    `${label}: "replay" label`,
-  );
+  assert.ok(m.label.width > 0 && inside(m.label, screen), `${label}: "replay" label`);
   // The caption: on screen, large, above the controls.
   assert.ok(inside(m.line, screen), `${label}: caption off screen`);
-  assert.ok(
-    m.caption.bottom <= m.controls.top + 1,
-    `${label}: caption over the controls`,
-  );
+  assert.ok(m.caption.bottom <= m.controls.top + 1, `${label}: caption over the controls`);
   assert.ok(m.lineSize >= 20, `${label}: caption ${m.lineSize}px`);
   // The camera's target is in view, above the caption.
   assert.ok(m.focus, `${label}: no shot`);
@@ -2321,19 +1875,10 @@ function checkFilmLayout(m, label) {
   // The call to action: on screen, between the caption and the controls, 44 px tall, legible.
   for (const { rect: r, contrast } of m.cta) {
     assert.ok(inside(r, screen), `${label}: a call-to-action link off screen`);
-    assert.ok(
-      r.top >= m.caption.bottom - 1,
-      `${label}: the call to action overlaps the caption`,
-    );
-    assert.ok(
-      r.bottom <= m.controls.top + 1,
-      `${label}: the call to action overlaps the controls`,
-    );
+    assert.ok(r.top >= m.caption.bottom - 1, `${label}: the call to action overlaps the caption`);
+    assert.ok(r.bottom <= m.controls.top + 1, `${label}: the call to action overlaps the controls`);
     assert.ok(r.height >= 44, `${label}: a ${r.height} px call-to-action link`);
-    assert.ok(
-      contrast >= 4.5,
-      `${label}: call-to-action contrast ${contrast.toFixed(2)}`,
-    );
+    assert.ok(contrast >= 4.5, `${label}: call-to-action contrast ${contrast.toFixed(2)}`);
   }
 }
 
@@ -2359,10 +1904,7 @@ test("layout: every scene's end frame at every size, in both themes, with screen
         await page.frames(2);
         await page.screenshot(`film-${n + 1}-${theme}-${width}x${height}`);
         try {
-          checkFilmLayout(
-            await filmLayout(page),
-            `scene ${n + 1} at ${width}×${height} ${theme}`,
-          );
+          checkFilmLayout(await filmLayout(page), `scene ${n + 1} at ${width}×${height} ${theme}`);
         } catch (err) {
           problems.push(err.message.split("\n")[0]);
         }
@@ -2373,21 +1915,14 @@ test("layout: every scene's end frame at every size, in both themes, with screen
   assert.deepEqual(problems, []);
 });
 
-test("smoke: every scene's end frame by jump at 1920×1080 and 390×844", async ({
-  newPage,
-}) => {
+test("smoke: every scene's end frame by jump at 1920×1080 and 390×844", async ({ newPage }) => {
   // The layout checks of the screenshot test above, at two sizes, from jumps alone.
   const problems = [];
   for (const [width, height] of [
     [1920, 1080],
     [390, 844],
   ]) {
-    const page = await newPage({
-      width,
-      height,
-      mobile: width < 800,
-      media: REDUCED,
-    });
+    const page = await newPage({ width, height, mobile: width < 800, media: REDUCED });
     await page.goto("/");
     await pausedFilm(page);
     const count = await page.eval(() => window.__demo.film.sceneCount);
@@ -2395,10 +1930,7 @@ test("smoke: every scene's end frame by jump at 1920×1080 and 390×844", async 
       await page.eval((i) => window.__demo.film.goTo(i), n);
       await page.frames(2);
       try {
-        checkFilmLayout(
-          await filmLayout(page),
-          `scene ${n + 1} at ${width}×${height}`,
-        );
+        checkFilmLayout(await filmLayout(page), `scene ${n + 1} at ${width}×${height}`);
       } catch (err) {
         problems.push(err.message.split("\n")[0]);
       }
@@ -2416,13 +1948,8 @@ const SECTIONS = ["template", "how-it-works", "get-started", "credits"];
 // comes into view), then waits until every pen group is drawn.
 const readPage = async (page) => {
   await page.eval(async () => {
-    const frame = () =>
-      new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-    for (
-      let y = 0;
-      y < document.documentElement.scrollHeight;
-      y += innerHeight * 0.5
-    ) {
+    const frame = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    for (let y = 0; y < document.documentElement.scrollHeight; y += innerHeight * 0.5) {
       scrollTo(0, y);
       await frame();
     }
@@ -2449,8 +1976,7 @@ const sectionsState = (page) =>
         .slice(0, 3)
         .map(Number);
     const lum = ([r, g, b]) => {
-      const ch = (v) =>
-        (v /= 255) <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+      const ch = (v) => ((v /= 255) <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
       return 0.2126 * ch(r) + 0.7152 * ch(g) + 0.0722 * ch(b);
     };
     const contrast = (a, b) => {
@@ -2473,17 +1999,14 @@ const sectionsState = (page) =>
     const ch = (el) => {
       const probe = document.createElement("span");
       probe.textContent = "0".repeat(10);
-      probe.style.cssText =
-        "position:absolute;visibility:hidden;white-space:nowrap";
+      probe.style.cssText = "position:absolute;visibility:hidden;white-space:nowrap";
       el.append(probe);
       const w = probe.getBoundingClientRect().width / 10;
       probe.remove();
       return w;
     };
     return {
-      order: [
-        ...document.querySelectorAll("main > section, body > footer"),
-      ].map((s) => s.id),
+      order: [...document.querySelectorAll("main > section, body > footer")].map((s) => s.id),
       figures: [...t.querySelectorAll("a > img")].map((img) => ({
         src: img.getAttribute("src"),
         href: img.parentElement.getAttribute("href"),
@@ -2491,10 +2014,7 @@ const sectionsState = (page) =>
       })),
       items: t.querySelectorAll("ol.tour > li").length,
       text: text(t),
-      commands: g
-        .querySelector("pre")
-        .textContent.replace(/\n$/, "")
-        .split("\n"),
+      commands: g.querySelector("pre").textContent.replace(/\n$/, "").split("\n"),
       links: [...g.querySelectorAll("a")].map((a) => a.getAttribute("href")),
       how: [...document.querySelectorAll("#how-it-works .beat")].map((b) => ({
         title: text(b.querySelector("h3")).trim(),
@@ -2506,20 +2026,12 @@ const sectionsState = (page) =>
       })),
       credits: {
         text: text(q("#credits")),
-        cats: [...document.querySelectorAll("#credits .cat")].map(
-          (c) => c.dataset.cat,
-        ),
-        links: [...document.querySelectorAll("#credits a")].map((a) =>
-          a.getAttribute("href"),
-        ),
+        cats: [...document.querySelectorAll("#credits .cat")].map((c) => c.dataset.cat),
+        links: [...document.querySelectorAll("#credits a")].map((a) => a.getAttribute("href")),
       },
-      marks: Object.fromEntries(
-        all.map((s) => [s.id, s.querySelectorAll(".pen-mark").length]),
-      ),
+      marks: Object.fromEntries(all.map((s) => [s.id, s.querySelectorAll(".pen-mark").length])),
       // Pen ink against what it lies on (handwriting: 3:1).
-      ink: [
-        ...document.querySelectorAll(".sections .pen-note, #credits .pen-note"),
-      ].map((n) => ({
+      ink: [...document.querySelectorAll(".sections .pen-note, #credits .pen-note")].map((n) => ({
         text: n.textContent,
         contrast: contrast(getComputedStyle(n).color, bgOf(n.parentElement)),
       })),
@@ -2536,9 +2048,7 @@ const sectionsState = (page) =>
       bareEmoji: els
         .filter((el) =>
           [...el.childNodes].some(
-            (c) =>
-              c.nodeType === 3 &&
-              /\p{Extended_Pictographic}/u.test(c.textContent),
+            (c) => c.nodeType === 3 && /\p{Extended_Pictographic}/u.test(c.textContent),
           ),
         )
         .filter((el) => !el.closest("[aria-hidden='true']"))
@@ -2549,15 +2059,11 @@ const sectionsState = (page) =>
       gradients: els
         .filter((el) => /gradient/.test(getComputedStyle(el).backgroundImage))
         .map((el) => el.className),
-      arrows: els.filter((el) => el.tagName === "A" && /→/.test(el.textContent))
-        .length,
+      arrows: els.filter((el) => el.tagName === "A" && /→/.test(el.textContent)).length,
       // Prose measure, in ch of the paragraph's own font.
       wide: [...document.querySelectorAll(".sections p, #credits p")]
         .filter((p) => !p.classList.contains("pen-note"))
-        .map((p) => ({
-          text: p.textContent.trim().slice(0, 40),
-          ch: p.offsetWidth / ch(p),
-        }))
+        .map((p) => ({ text: p.textContent.trim().slice(0, 40), ch: p.offsetWidth / ch(p) }))
         .filter((p) => p.ch > 80),
       scrollWidth: document.documentElement.scrollWidth,
       vw: innerWidth,
@@ -2591,10 +2097,7 @@ function checkSections(got, label, problems) {
     `${label}: page images load`,
   );
   assert.equal(got.items, 6, "six things to notice");
-  assert.match(
-    got.text,
-    /Package resume Error: Unknown role key 'windowsil'\./,
-  );
+  assert.match(got.text, /Package resume Error: Unknown role key 'windowsil'\./);
   assert.match(got.text, /\.\/canonical\/resume\.tex:60:/);
   assert.match(got.text, /\\defrole\{windowsill\}/);
   assert.match(got.text, /\\begin\{role\}\{windowsill\}/);
@@ -2637,29 +2140,18 @@ function checkSections(got, label, problems) {
     assert.ok(got.credits.text.includes(s), `credits: "${s}"`);
   }
   assert.ok(
-    got.credits.links.includes(
-      "https://github.com/h1994st/my-resume/blob/main/LICENSE",
-    ),
+    got.credits.links.includes("https://github.com/h1994st/my-resume/blob/main/LICENSE"),
     "credits: the MIT license",
   );
-  assert.ok(
-    got.credits.links.includes("fonts/caveat/OFL.txt"),
-    "credits: Caveat's license",
-  );
+  assert.ok(got.credits.links.includes("fonts/caveat/OFL.txt"), "credits: Caveat's license");
   // The pen: on the template's pages and snippets; legible; inside the window.
-  assert.ok(
-    got.marks.template >= 6,
-    `${label}: ${got.marks.template} marks on the template`,
-  );
+  assert.ok(got.marks.template >= 6, `${label}: ${got.marks.template} marks on the template`);
   for (const n of got.ink) {
-    if (n.contrast < 3)
-      problems.push(`${label}: note "${n.text}" contrast ${n.contrast}`);
+    if (n.contrast < 3) problems.push(`${label}: note "${n.text}" contrast ${n.contrast}`);
   }
   for (const b of got.penBoxes) {
     if (b.left < -1 || b.right > got.vw + 1) {
-      problems.push(
-        `${label}: pen "${b.text}" outside the window (${b.left}–${b.right})`,
-      );
+      problems.push(`${label}: pen "${b.text}" outside the window (${b.left}–${b.right})`);
     }
   }
   // Calm: no all-caps, gradients, or arrows on links; prose under 80ch; emoji decorative.
@@ -2669,9 +2161,7 @@ function checkSections(got, label, problems) {
   assert.deepEqual(got.wide, [], `${label}: prose over 80ch`);
   assert.deepEqual(got.bareEmoji, [], `${label}: emoji not aria-hidden`);
   if (got.scrollWidth > got.vw) {
-    problems.push(
-      `${label}: horizontal scroll (${got.scrollWidth} > ${got.vw})`,
-    );
+    problems.push(`${label}: horizontal scroll (${got.scrollWidth} > ${got.vw})`);
   }
 }
 
@@ -2693,17 +2183,12 @@ test("sections: the template, how it works, get started, and credits, at every s
       await page.eval(() => window.__demo.film.pause());
       await readPage(page);
       await page.waitFor(() =>
-        [...document.querySelectorAll("#template img")].every(
-          (i) => i.complete && i.naturalWidth,
-        ),
+        [...document.querySelectorAll("#template img")].every((i) => i.complete && i.naturalWidth),
       );
       const got = await sectionsState(page);
       checkSections(got, label, problems);
       for (const id of SECTIONS) {
-        await page.screenshotOf(
-          `#${id}`,
-          `section-${id}-${theme}-${width}x${height}`,
-        );
+        await page.screenshotOf(`#${id}`, `section-${id}-${theme}-${width}x${height}`);
       }
       await page.close();
     }
@@ -2711,21 +2196,13 @@ test("sections: the template, how it works, get started, and credits, at every s
   assert.deepEqual(problems, []);
 });
 
-test("smoke: the sections' verified text and the README's quick start", async ({
-  newPage,
-}) => {
-  const page = await newPage({
-    width: 1280,
-    height: 720,
-    media: scheme("light"),
-  });
+test("smoke: the sections' verified text and the README's quick start", async ({ newPage }) => {
+  const page = await newPage({ width: 1280, height: 720, media: scheme("light") });
   await page.goto("/");
   await page.eval(() => window.__demo.film.pause());
   await readPage(page);
   await page.waitFor(() =>
-    [...document.querySelectorAll("#template img")].every(
-      (i) => i.complete && i.naturalWidth,
-    ),
+    [...document.querySelectorAll("#template img")].every((i) => i.complete && i.naturalWidth),
   );
   const problems = [];
   checkSections(await sectionsState(page), "1280×720 light", problems);
@@ -2735,21 +2212,14 @@ test("smoke: the sections' verified text and the README's quick start", async ({
 test("sections: pen marks draw once when scrolled into view, and redraw at once on a resize", async ({
   newPage,
 }) => {
-  const page = await newPage({
-    width: 1280,
-    height: 720,
-    media: scheme("light"),
-  });
+  const page = await newPage({ width: 1280, height: 720, media: scheme("light") });
   await page.goto("/");
   await page.eval(() => window.__demo.film.pause());
   await page.waitFor(() => window.__page?.ready);
   // Nothing is drawn below the fold yet.
   const before = await page.eval(() => ({
-    states: [...document.querySelectorAll("[data-pen-group]")].map(
-      (g) => g.dataset.penState,
-    ),
-    marks: document.querySelectorAll(".sections .pen-mark, #credits .pen-mark")
-      .length,
+    states: [...document.querySelectorAll("[data-pen-group]")].map((g) => g.dataset.penState),
+    marks: document.querySelectorAll(".sections .pen-mark, #credits .pen-mark").length,
   }));
   assert.ok(before.states.length >= 8, `${before.states.length} pen groups`);
   assert.ok(
@@ -2759,22 +2229,18 @@ test("sections: pen marks draw once when scrolled into view, and redraw at once 
   assert.equal(before.marks, 0, "no marks before scrolling");
   // Scrolled into view, the first close-up draws on (animated), then is drawn.
   await page.eval(() =>
-    document
-      .querySelector("#template .closeup")
-      .scrollIntoView({ block: "center" }),
+    document.querySelector("#template .closeup").scrollIntoView({ block: "center" }),
   );
   const drawing = await page.waitFor(() => {
     const g = document.querySelector("#template .closeup");
     if (g.dataset.penState === "drawing") {
-      return document.getAnimations().filter((a) => a.playState === "running")
-        .length;
+      return document.getAnimations().filter((a) => a.playState === "running").length;
     }
     return 0;
   });
   assert.ok(drawing > 0, "the pen draws on");
   await page.waitFor(
-    () =>
-      document.querySelector("#template .closeup").dataset.penState === "drawn",
+    () => document.querySelector("#template .closeup").dataset.penState === "drawn",
   );
   // Tag the drawn marks; scrolling away and back draws nothing new.
   const count = await page.eval(() => {
@@ -2788,32 +2254,21 @@ test("sections: pen marks draw once when scrolled into view, and redraw at once 
   await page.eval(() => scrollTo(0, 0));
   await page.frames(4);
   await page.eval(() =>
-    document
-      .querySelector("#template .closeup")
-      .scrollIntoView({ block: "center" }),
+    document.querySelector("#template .closeup").scrollIntoView({ block: "center" }),
   );
   await page.frames(10);
   const again = await page.eval(() => ({
-    all: document.querySelectorAll(
-      "#template .closeup .pen-mark, #template .closeup .pen-note",
-    ).length,
-    tagged: document.querySelectorAll("#template .closeup [data-tagged]")
+    all: document.querySelectorAll("#template .closeup .pen-mark, #template .closeup .pen-note")
       .length,
+    tagged: document.querySelectorAll("#template .closeup [data-tagged]").length,
     state: document.querySelector("#template .closeup").dataset.penState,
   }));
-  assert.deepEqual(
-    again,
-    { all: count, tagged: count, state: "drawn" },
-    "drawn once",
-  );
+  assert.deepEqual(again, { all: count, tagged: count, state: "drawn" }, "drawn once");
   // A resize redraws a drawn group at once (no animation), to its new size.
   await page.viewport(390, 844);
-  await page.waitFor(
-    () => !document.querySelector("#template .closeup [data-tagged]"),
-    {
-      timeout: 5000,
-    },
-  );
+  await page.waitFor(() => !document.querySelector("#template .closeup [data-tagged]"), {
+    timeout: 5000,
+  });
   const resized = await page.eval(() => {
     const g = document.querySelector("#template .closeup");
     const box = g.querySelector(".closeup-paper").getBoundingClientRect();
@@ -2823,18 +2278,12 @@ test("sections: pen marks draw once when scrolled into view, and redraw at once 
       marks: marks.length,
       running: document
         .getAnimations()
-        .filter(
-          (a) =>
-            a.playState === "running" &&
-            a.effect?.target?.closest?.(".closeup"),
-        ).length,
+        .filter((a) => a.playState === "running" && a.effect?.target?.closest?.(".closeup")).length,
       inside: marks.every((m) => {
         const r = m.getBoundingClientRect();
         const cx = (r.left + r.right) / 2;
         const cy = (r.top + r.bottom) / 2;
-        return (
-          cx > box.left && cx < box.right && cy > box.top && cy < box.bottom
-        );
+        return cx > box.left && cx < box.right && cy > box.top && cy < box.bottom;
       }),
     };
   });
@@ -2851,21 +2300,15 @@ test("sections: with reduced motion every pen mark is drawn at once, without ani
   await page.goto("/");
   await page.waitFor(() => window.__page?.ready);
   const got = await page.eval(() => ({
-    states: [...document.querySelectorAll("[data-pen-group]")].map(
-      (g) => g.dataset.penState,
-    ),
+    states: [...document.querySelectorAll("[data-pen-group]")].map((g) => g.dataset.penState),
     marks: document.querySelectorAll(".sections .pen-mark").length,
     running: document
       .getAnimations()
       .filter((a) => a.playState === "running")
       .filter((a) => a.effect?.target?.closest?.(".sections, #credits")).length,
     // Cats hold still.
-    catMotion: [
-      ...document.querySelectorAll(".sections .cat, #credits .cat"),
-    ].some((c) =>
-      [...c.querySelectorAll("*")].some(
-        (n) => getComputedStyle(n).animationName !== "none",
-      ),
+    catMotion: [...document.querySelectorAll(".sections .cat, #credits .cat")].some((c) =>
+      [...c.querySelectorAll("*")].some((n) => getComputedStyle(n).animationName !== "none"),
     ),
   }));
   assert.ok(
@@ -2901,10 +2344,7 @@ test("sections: each close-up's pen mark sits on what it names in the real PDF",
     const want = phrase.split(" ");
     for (let i = 0; i < words.length; i++) {
       const run = words.slice(i, i + want.length);
-      if (
-        run.length === want.length &&
-        run.every((w, k) => w.w.startsWith(want[k]))
-      ) {
+      if (run.length === want.length && run.every((w, k) => w.w.startsWith(want[k]))) {
         return {
           x0: Math.min(...run.map((w) => w.x0)),
           y0: Math.min(...run.map((w) => w.y0)),
@@ -2931,11 +2371,7 @@ test("sections: each close-up's pen mark sits on what it names in the real PDF",
   assert.deepEqual(size, [612, 792], "US Letter pages");
   const tol = 3;
   for (const c of closeups) {
-    assert.equal(
-      c.src,
-      "img/canonical-1.png",
-      "close-ups are of the real page 1",
-    );
+    assert.equal(c.src, "img/canonical-1.png", "close-ups are of the real page 1");
     assert.ok(c.drawn >= 1, `${c.expect}: drawn`);
     const [, ...nums] = c.mark;
     const [mx, my, mw, mh] = nums.map(Number);
@@ -2950,10 +2386,7 @@ test("sections: each close-up's pen mark sits on what it names in the real PDF",
       // The spine is drawn, not text: left of the role titles, alongside them.
       for (const title of ["Head of Windowsill", "Senior Box Inspector"]) {
         const b = find(title);
-        assert.ok(
-          m.x1 <= b.x0 && b.x0 - m.x1 < 15,
-          `spine: not just left of "${title}"`,
-        );
+        assert.ok(m.x1 <= b.x0 && b.x0 - m.x1 < 15, `spine: not just left of "${title}"`);
         const mid = (b.y0 + b.y1) / 2;
         assert.ok(mid > m.y0 && mid < m.y1, `spine: not alongside "${title}"`);
       }
@@ -2962,25 +2395,17 @@ test("sections: each close-up's pen mark sits on what it names in the real PDF",
     // Text: the words inside the mark's box, and the box hugging them.
     const b = find(c.expect);
     assert.ok(
-      b.x0 >= m.x0 - tol &&
-        b.x1 <= m.x1 + tol &&
-        b.y0 >= m.y0 - tol &&
-        b.y1 <= m.y1 + tol,
+      b.x0 >= m.x0 - tol && b.x1 <= m.x1 + tol && b.y0 >= m.y0 - tol && b.y1 <= m.y1 + tol,
       `${c.expect}: words ${JSON.stringify(b)} outside the mark ${JSON.stringify(m)}`,
     );
     assert.ok(
-      b.x0 - m.x0 < 12 &&
-        m.x1 - b.x1 < 12 &&
-        b.y0 - m.y0 < 8 &&
-        m.y1 - b.y1 < 8,
+      b.x0 - m.x0 < 12 && m.x1 - b.x1 < 12 && b.y0 - m.y0 < 8 && m.y1 - b.y1 < 8,
       `${c.expect}: mark ${JSON.stringify(m)} loose around ${JSON.stringify(b)}`,
     );
   }
 });
 
-test("sections: links show a visible keyboard focus ring", async ({
-  newPage,
-}) => {
+test("sections: links show a visible keyboard focus ring", async ({ newPage }) => {
   const page = await newPage({ width: 1280, height: 720 });
   await page.goto("/");
   await page.eval(() => window.__demo.film.pause());
@@ -2997,13 +2422,10 @@ test("sections: links show a visible keyboard focus ring", async ({
     }),
   );
   assert.ok(rings.length >= 8);
-  for (const r of rings)
-    assert.ok(r.visible && r.width >= 2, `no focus ring on ${r.href}`);
+  for (const r of rings) assert.ok(r.visible && r.width >= 2, `no focus ring on ${r.href}`);
 });
 
-test("head: title, description, theme colour, Open Graph image, favicon", async ({
-  newPage,
-}) => {
+test("head: title, description, theme colour, Open Graph image, favicon", async ({ newPage }) => {
   const page = await newPage();
   await page.goto("/");
   const head = await page.eval(() => ({
@@ -3024,12 +2446,10 @@ test("head: title, description, theme colour, Open Graph image, favicon", async 
 
   // SEO: a canonical URL, structured data tied to the homepage's Person, and a sitemap.
   const seo = await page.eval(() => ({
-    canonical: document
-      .querySelector('link[rel="canonical"]')
-      ?.getAttribute("href"),
-    ld: [
-      ...document.querySelectorAll('script[type="application/ld+json"]'),
-    ].map((s) => s.textContent),
+    canonical: document.querySelector('link[rel="canonical"]')?.getAttribute("href"),
+    ld: [...document.querySelectorAll('script[type="application/ld+json"]')].map(
+      (s) => s.textContent,
+    ),
   }));
   assert.equal(seo.canonical, "https://shengtuo.me/my-resume/");
   assert.equal(seo.ld.length, 1, "one JSON-LD block");
@@ -3053,20 +2473,8 @@ const PEN = {
   desk: { light: "rgb(194, 65, 12)", dark: "rgb(251, 146, 60)" },
 };
 const CAST = {
-  duna: {
-    coat: "#9aa3ad",
-    stripe: "#59626d",
-    light: "#eceff2",
-    iris: "#e3a72f",
-    nose: "#e48b8b",
-  },
-  dudu: {
-    coat: "#8c939c",
-    stripe: "#8c939c",
-    light: "#b9bfc6",
-    iris: "#8fc27a",
-    nose: "#c98a8f",
-  },
+  duna: { coat: "#9aa3ad", stripe: "#59626d", light: "#eceff2", iris: "#e3a72f", nose: "#e48b8b" },
+  dudu: { coat: "#8c939c", stripe: "#8c939c", light: "#b9bfc6", iris: "#8fc27a", nose: "#c98a8f" },
   nangnang: {
     coat: "#b48c5f",
     stripe: "#5a4230",
@@ -3089,30 +2497,20 @@ const themeState = (page) =>
       pressed: button?.getAttribute("aria-pressed") ?? null,
       // The accessible name: constant; aria-pressed carries the state.
       name: button
-        ? (button.getAttribute("aria-label") ?? button.textContent)
-            .replace(/\s+/g, " ")
-            .trim()
+        ? (button.getAttribute("aria-label") ?? button.textContent).replace(/\s+/g, " ").trim()
         : null,
     };
   });
 // localStorage outlives a test (one browser profile for the run), so theme tests clean up.
 const forgetTheme = (page) => page.eval(() => localStorage.removeItem("theme"));
-const toggleTheme = (page) =>
-  page.eval(() => document.getElementById("theme-toggle").click());
+const toggleTheme = (page) => page.eval(() => document.getElementById("theme-toggle").click());
 
-test("theme: follows the system setting while nothing is stored", async ({
-  newPage,
-}) => {
+test("theme: follows the system setting while nothing is stored", async ({ newPage }) => {
   for (const [width, height] of [
     [1280, 720],
     [390, 844],
   ]) {
-    const page = await newPage({
-      width,
-      height,
-      mobile: width < 800,
-      media: scheme("dark"),
-    });
+    const page = await newPage({ width, height, mobile: width < 800, media: scheme("dark") });
     await page.goto("/");
     await forgetTheme(page);
     await page.goto("/");
@@ -3125,10 +2523,7 @@ test("theme: follows the system setting while nothing is stored", async ({
     });
     await page.eval(() => window.__demo.film.pause());
     await page.screenshot(`theme-dark-${width}x${height}`);
-    await page.screenshotOf(
-      "#template",
-      `theme-dark-template-${width}x${height}`,
-    );
+    await page.screenshotOf("#template", `theme-dark-template-${width}x${height}`);
     await page.media(scheme("light"));
     await page.frames(2);
     assert.deepEqual(await themeState(page), {
@@ -3143,8 +2538,7 @@ test("theme: follows the system setting while nothing is stored", async ({
     const m = await page.eval(() => {
       const b = document.getElementById("theme-toggle").getBoundingClientRect();
       const h = document.querySelector(".site-title").getBoundingClientRect();
-      const hit = (x, y) =>
-        document.elementFromPoint(x, y)?.closest("#theme-toggle") !== null;
+      const hit = (x, y) => document.elementFromPoint(x, y)?.closest("#theme-toggle") !== null;
       const cx = b.left + b.width / 2;
       const cy = b.top + b.height / 2;
       return {
@@ -3152,17 +2546,10 @@ test("theme: follows the system setting while nothing is stored", async ({
         scrollWidth: document.documentElement.scrollWidth,
         b: b.toJSON(),
         header: h.height,
-        target:
-          hit(cx, cy - 21) &&
-          hit(cx, cy + 21) &&
-          hit(cx - 21, cy) &&
-          hit(cx + 21, cy),
+        target: hit(cx, cy - 21) && hit(cx, cy + 21) && hit(cx - 21, cy) && hit(cx + 21, cy),
       };
     });
-    assert.ok(
-      m.b.left >= 0 && m.b.right <= m.vw,
-      `${width}: toggle off screen`,
-    );
+    assert.ok(m.b.left >= 0 && m.b.right <= m.vw, `${width}: toggle off screen`);
     assert.equal(m.header, 48, `${width}: header height`);
     assert.ok(m.target, `${width}: toggle target under 44px`);
     assert.ok(m.scrollWidth <= m.vw, `${width}: horizontal scroll`);
@@ -3170,9 +2557,7 @@ test("theme: follows the system setting while nothing is stored", async ({
   }
 });
 
-test("theme: the toggle sets data-theme and keeps it across a reload", async ({
-  newPage,
-}) => {
+test("theme: the toggle sets data-theme and keeps it across a reload", async ({ newPage }) => {
   const page = await newPage({ media: scheme("light") });
   await page.goto("/");
   await forgetTheme(page);
@@ -3188,9 +2573,7 @@ test("theme: the toggle sets data-theme and keeps it across a reload", async ({
     };
     assert.deepEqual(await themeState(page), dark);
     assert.deepEqual(
-      await page.eval(() =>
-        window.__demo.events.filter((e) => e.name === "theme"),
-      ),
+      await page.eval(() => window.__demo.events.filter((e) => e.name === "theme")),
       [{ name: "theme", params: { theme: "dark" } }],
       "onChange reports the choice",
     );
@@ -3216,9 +2599,7 @@ test("theme: the toggle sets data-theme and keeps it across a reload", async ({
   }
 });
 
-test("theme: a stored theme applies before the first paint", async ({
-  newPage,
-}) => {
+test("theme: a stored theme applies before the first paint", async ({ newPage }) => {
   for (const [system, stored] of [
     ["light", "dark"],
     ["dark", "light"],
@@ -3251,19 +2632,11 @@ test("theme: a stored theme applies before the first paint", async ({
       const paint = await page.eval(() => window.__paint);
       const desk = stored === "dark" ? "#1b1f25" : "#eef0f3";
       const attr = paint.filter((p) => p.when === "attr");
-      assert.equal(
-        attr.length,
-        1,
-        `one data-theme change: ${JSON.stringify(paint)}`,
-      );
+      assert.equal(attr.length, 1, `one data-theme change: ${JSON.stringify(paint)}`);
       assert.equal(attr[0].theme, stored);
       assert.equal(attr[0].body, false, "set while the head is parsed");
       const frame = paint.find((p) => p.when === "frame");
-      assert.deepEqual(
-        [frame.theme, frame.desk],
-        [stored, desk],
-        "first frame",
-      );
+      assert.deepEqual([frame.theme, frame.desk], [stored, desk], "first frame");
       const load = paint.find((p) => p.when === "load");
       assert.deepEqual([load.theme, load.desk], [stored, desk], "at load");
     } finally {
@@ -3273,9 +2646,7 @@ test("theme: a stored theme applies before the first paint", async ({
   }
 });
 
-test("theme: the toggle shows the theme on screen before main.js runs", async ({
-  newPage,
-}) => {
+test("theme: the toggle shows the theme on screen before main.js runs", async ({ newPage }) => {
   for (const [system, stored, pressed] of [
     ["dark", null, "true"],
     ["light", null, "false"],
@@ -3285,21 +2656,14 @@ test("theme: the toggle shows the theme on screen before main.js runs", async ({
     const page = await newPage({ media: scheme(system) });
     await page.goto("/");
     await page.eval(
-      (t) =>
-        t ? localStorage.setItem("theme", t) : localStorage.removeItem("theme"),
+      (t) => (t ? localStorage.setItem("theme", t) : localStorage.removeItem("theme")),
       stored,
     );
     try {
       // main.js (theme.js) never loads: only the page's inline scripts run.
-      await page.send("Fetch.enable", {
-        patterns: [{ urlPattern: "*/main.js" }],
-      });
+      await page.send("Fetch.enable", { patterns: [{ urlPattern: "*/main.js" }] });
       const off = page.cdp.on((msg) => {
-        if (
-          msg.sessionId !== page.sessionId ||
-          msg.method !== "Fetch.requestPaused"
-        )
-          return;
+        if (msg.sessionId !== page.sessionId || msg.method !== "Fetch.requestPaused") return;
         page.send("Fetch.failRequest", {
           requestId: msg.params.requestId,
           errorReason: "BlockedByClient",
@@ -3309,15 +2673,9 @@ test("theme: the toggle shows the theme on screen before main.js runs", async ({
       off();
       const got = await page.eval(() => ({
         demo: Boolean(window.__demo),
-        pressed: document
-          .getElementById("theme-toggle")
-          .getAttribute("aria-pressed"),
+        pressed: document.getElementById("theme-toggle").getAttribute("aria-pressed"),
       }));
-      assert.deepEqual(
-        got,
-        { demo: false, pressed },
-        `system ${system}, stored ${stored}`,
-      );
+      assert.deepEqual(got, { demo: false, pressed }, `system ${system}, stored ${stored}`);
     } finally {
       await forgetTheme(page);
       await page.close();
@@ -3327,10 +2685,7 @@ test("theme: the toggle shows the theme on screen before main.js runs", async ({
 
 test("assembled site: the Caveat fonts and their license", async () => {
   const dir = path.join(SITE, "fonts/caveat");
-  for (const file of [
-    "caveat-latin-400-normal.woff2",
-    "caveat-latin-600-normal.woff2",
-  ]) {
+  for (const file of ["caveat-latin-400-normal.woff2", "caveat-latin-600-normal.woff2"]) {
     assert.ok(existsSync(path.join(dir, file)), `${file} in the site`);
   }
   const ofl = path.join(dir, "OFL.txt");
@@ -3341,8 +2696,7 @@ test("assembled site: the Caveat fonts and their license", async () => {
 // Everything the kit page draws, measured.
 const kitState = (page) =>
   page.eval(() => {
-    const css = (el, name) =>
-      getComputedStyle(el).getPropertyValue(name).trim();
+    const css = (el, name) => getComputedStyle(el).getPropertyValue(name).trim();
     const box = (els) => {
       const rs = [...els].map((e) => e.getBoundingClientRect());
       return {
@@ -3354,9 +2708,7 @@ const kitState = (page) =>
     };
     const marks = {};
     for (const el of document.querySelectorAll(".kit .pen-mark")) {
-      const target = document.querySelector(
-        `.kit [data-kit-target="${el.dataset.kind}"]`,
-      );
+      const target = document.querySelector(`.kit [data-kit-target="${el.dataset.kind}"]`);
       marks[el.dataset.kind] = {
         mark: box(el.querySelectorAll("path")),
         target: target && box([target]),
@@ -3373,10 +2725,7 @@ const kitState = (page) =>
         pose: c.dataset.pose,
         api: typeof c.pose === "function" && typeof c.idle === "function",
         colors: Object.fromEntries(
-          ["coat", "stripe", "light", "iris", "nose"].map((k) => [
-            k,
-            css(c, `--${k}`),
-          ]),
+          ["coat", "stripe", "light", "iris", "nose"].map((k) => [k, css(c, `--${k}`)]),
         ),
         edge: css(c, "--cat-edge"),
         size: c.getBoundingClientRect().width,
@@ -3386,14 +2735,10 @@ const kitState = (page) =>
         ink: n.dataset.ink,
         color: getComputedStyle(n).color,
         font: getComputedStyle(n).fontFamily,
-        emoji: [...n.querySelectorAll("[aria-hidden='true']")].map(
-          (e) => e.textContent,
-        ),
+        emoji: [...n.querySelectorAll("[aria-hidden='true']")].map((e) => e.textContent),
         text: n.textContent,
       })),
-      caveat:
-        document.fonts.check("400 24px Caveat") &&
-        document.fonts.check("600 24px Caveat"),
+      caveat: document.fonts.check("400 24px Caveat") && document.fonts.check("600 24px Caveat"),
       vw: innerWidth,
       scrollWidth: document.documentElement.scrollWidth,
     };
@@ -3404,11 +2749,7 @@ test("kit: the three cats in every pose and every pen mark, in both themes", asy
 }) => {
   for (const theme of ["light", "dark"]) {
     // Reduced motion: poses hold still, so the screenshots are stable.
-    const page = await newPage({
-      width: 1280,
-      height: 900,
-      media: [...scheme(theme), ...REDUCED],
-    });
+    const page = await newPage({ width: 1280, height: 900, media: [...scheme(theme), ...REDUCED] });
     await page.goto("/?kit", { waitForDemo: false });
     await page.waitFor(() => window.__kit?.ready);
     await page.eval(() => document.fonts.ready.then(() => true));
@@ -3428,14 +2769,9 @@ test("kit: the three cats in every pose and every pen mark, in both themes", asy
       }
     }
     const edge = k.cats[0].edge;
-    if (theme === "dark")
-      assert.notEqual(edge, "transparent", "a faint outline in dark");
+    if (theme === "dark") assert.notEqual(edge, "transparent", "a faint outline in dark");
     else assert.equal(edge, "transparent", "no outline in light");
-    assert.deepEqual(
-      Object.keys(k.marks).sort(),
-      [...MARKS].sort(),
-      "every mark kind",
-    );
+    assert.deepEqual(Object.keys(k.marks).sort(), [...MARKS].sort(), "every mark kind");
     for (const kind of MARKS) {
       const { mark: m, target: t, drawn } = k.marks[kind];
       assert.ok(t, `${kind}: a target`);
@@ -3452,18 +2788,10 @@ test("kit: the three cats in every pose and every pen mark, in both themes", asy
           `${label}: rings the target`,
         );
       } else if (kind === "underline" || kind === "strike") {
-        assert.ok(
-          m.left <= t.left + 0.1 * w && m.right >= t.right - 0.1 * w,
-          `${label}: spans it`,
-        );
+        assert.ok(m.left <= t.left + 0.1 * w && m.right >= t.right - 0.1 * w, `${label}: spans it`);
         const mid = (m.top + m.bottom) / 2;
-        if (kind === "underline")
-          assert.ok(mid >= t.bottom - 0.25 * h, `${label}: below`);
-        else
-          assert.ok(
-            mid > t.top + 0.25 * h && mid < t.bottom - 0.25 * h,
-            `${label}: through`,
-          );
+        if (kind === "underline") assert.ok(mid >= t.bottom - 0.25 * h, `${label}: below`);
+        else assert.ok(mid > t.top + 0.25 * h && mid < t.bottom - 0.25 * h, `${label}: through`);
       } else {
         const gap = Math.max(
           t.left - m.right,
@@ -3473,12 +2801,7 @@ test("kit: the three cats in every pose and every pen mark, in both themes", asy
         );
         assert.ok(gap <= 24, `${label}: points at the target`);
         assert.ok(
-          !(
-            m.left >= t.left &&
-            m.right <= t.right &&
-            m.top >= t.top &&
-            m.bottom <= t.bottom
-          ),
+          !(m.left >= t.left && m.right <= t.right && m.top >= t.top && m.bottom <= t.bottom),
           `${label}: from outside`,
         );
       }
@@ -3486,25 +2809,17 @@ test("kit: the three cats in every pose and every pen mark, in both themes", asy
     }
     const desk = k.notes.filter((n) => n.ink === "desk");
     const paper = k.notes.filter((n) => n.ink === "paper");
-    assert.ok(
-      desk.length >= 1 && paper.length >= 1,
-      "notes on the desk and on paper",
-    );
-    for (const n of desk)
-      assert.equal(n.color, PEN.desk[theme], `desk note colour in ${theme}`);
-    for (const n of paper)
-      assert.equal(n.color, PEN.paper, "paper note colour");
+    assert.ok(desk.length >= 1 && paper.length >= 1, "notes on the desk and on paper");
+    for (const n of desk) assert.equal(n.color, PEN.desk[theme], `desk note colour in ${theme}`);
+    for (const n of paper) assert.equal(n.color, PEN.paper, "paper note colour");
     // A note anchored to the paper but written on the desk takes the desk's ink.
-    const anchored = k.notes.find((n) =>
-      n.text.startsWith("which one is true?"),
-    );
+    const anchored = k.notes.find((n) => n.text.startsWith("which one is true?"));
     assert.deepEqual(
       [anchored?.ink, anchored?.color],
       ["desk", PEN.desk[theme]],
       `desk note anchored to paper in ${theme}`,
     );
-    for (const n of k.notes)
-      assert.match(n.font, /^"?Caveat"?/, "notes in Caveat");
+    for (const n of k.notes) assert.match(n.font, /^"?Caveat"?/, "notes in Caveat");
     assert.ok(k.caveat, "Caveat 400 and 600 loaded");
     assert.ok(
       k.notes.some((n) => n.emoji.includes("🙀")),
@@ -3516,9 +2831,7 @@ test("kit: the three cats in every pose and every pen mark, in both themes", asy
   }
 });
 
-test("kit: idle motion and pose loops, and none with reduced motion", async ({
-  newPage,
-}) => {
+test("kit: idle motion and pose loops, and none with reduced motion", async ({ newPage }) => {
   for (const reduced of [false, true]) {
     const page = await newPage({ media: reduced ? REDUCED : [] });
     await page.goto("/?kit", { waitForDemo: false });
@@ -3530,8 +2843,7 @@ test("kit: idle motion and pose loops, and none with reduced motion", async ({
       document.querySelector(".kit").prepend(cat);
       const state = () => ({
         pose: cat.dataset.pose,
-        idle:
-          getComputedStyle(cat).getPropertyValue("--cat-wag").trim() !== "none",
+        idle: getComputedStyle(cat).getPropertyValue("--cat-wag").trim() !== "none",
         moving: cat.getAnimations({ subtree: true }).length > 0,
       });
       const out = { wave: state() };
@@ -3586,11 +2898,7 @@ test("kit: idle motion and pose loops, and none with reduced motion", async ({
           const [p, q] = await Promise.all([pixels(x), pixels(y)]);
           let n = 0;
           for (let i = 0; i < p.length; i += 4) {
-            if (
-              Math.max(...[0, 1, 2].map((k) => Math.abs(p[i + k] - q[i + k]))) >
-              24
-            )
-              n++;
+            if (Math.max(...[0, 1, 2].map((k) => Math.abs(p[i + k] - q[i + k]))) > 24) n++;
           }
           return n;
         },
@@ -3601,11 +2909,7 @@ test("kit: idle motion and pose loops, and none with reduced motion", async ({
     };
     await page.eval(() => document.getElementById("test-cat").pose("sit"));
     await page.frames(3);
-    assert.equal(
-      await changes(),
-      !reduced,
-      `idle on, reduced motion ${reduced}`,
-    );
+    assert.equal(await changes(), !reduced, `idle on, reduced motion ${reduced}`);
     await page.eval(() => document.getElementById("test-cat").idle(false));
     await page.frames(3);
     assert.equal(await changes(), false, `idle off, reduced motion ${reduced}`);
@@ -3613,9 +2917,7 @@ test("kit: idle motion and pose loops, and none with reduced motion", async ({
   }
 });
 
-test("pen: marks and notes draw on, resolve when drawn, and stop on abort", async ({
-  newPage,
-}) => {
+test("pen: marks and notes draw on, resolve when drawn, and stop on abort", async ({ newPage }) => {
   for (const reduced of [false, true]) {
     const page = await newPage({ media: reduced ? REDUCED : [] });
     await page.goto("/?kit", { waitForDemo: false });
@@ -3639,11 +2941,7 @@ test("pen: marks and notes draw on, resolve when drawn, and stop on abort", asyn
       t = performance.now();
       const note = await pen.note("moved up!", { x: 20, y: 20 }, { layer });
       const noteMs = performance.now() - t;
-      const instant = pen.markInstant(
-        { x: 10, y: 10, w: 80, h: 20 },
-        "strike",
-        { layer },
-      );
+      const instant = pen.markInstant({ x: 10, y: 10, w: 80, h: 20 }, "strike", { layer });
       const instantDrawn = offsets(instant).every((o) => o === 0);
       const instantNote = pen.noteInstant("hi 👋", { x: 10, y: 40 }, { layer });
       const rejects = async (promise) => {
@@ -3655,9 +2953,7 @@ test("pen: marks and notes draw on, resolve when drawn, and stop on abort", asyn
         }
       };
       // Aborted before it starts: nothing is drawn.
-      const early = await rejects(
-        pen.mark(target, "underline", { signal: AbortSignal.abort() }),
-      );
+      const early = await rejects(pen.mark(target, "underline", { signal: AbortSignal.abort() }));
       const afterEarly = count();
       // Aborted while drawing (only possible with motion): the mark goes away.
       const ctl = new AbortController();
@@ -3682,45 +2978,20 @@ test("pen: marks and notes draw on, resolve when drawn, and stop on abort", asyn
     const label = reduced ? "reduced motion" : "motion";
     assert.ok(got.drawn, `${label}: drawn when resolved`);
     if (reduced) {
-      assert.ok(
-        got.markMs < 100 && got.noteMs < 100,
-        `${label}: instant (${got.markMs} ms)`,
-      );
+      assert.ok(got.markMs < 100 && got.noteMs < 100, `${label}: instant (${got.markMs} ms)`);
     } else {
-      assert.ok(
-        got.markMs >= 250,
-        `${label}: the mark draws on (${got.markMs} ms)`,
-      );
-      assert.ok(
-        got.noteMs >= 250,
-        `${label}: the note writes on (${got.noteMs} ms)`,
-      );
+      assert.ok(got.markMs >= 250, `${label}: the mark draws on (${got.markMs} ms)`);
+      assert.ok(got.noteMs >= 250, `${label}: the note writes on (${got.noteMs} ms)`);
     }
     assert.ok(got.instant, `${label}: instant marks are drawn at once`);
     assert.deepEqual(got.noteText, ["moved up!", "hi 👋"]);
     assert.equal(got.emoji, "👋", "emoji are decorative");
-    assert.deepEqual(
-      got.early,
-      ["AbortError", 4],
-      `${label}: an aborted signal draws nothing`,
-    );
-    assert.equal(
-      got.added,
-      5,
-      `${label}: four marks/notes plus the pending one`,
-    );
+    assert.deepEqual(got.early, ["AbortError", 4], `${label}: an aborted signal draws nothing`);
+    assert.equal(got.added, 5, `${label}: four marks/notes plus the pending one`);
     if (reduced) {
-      assert.deepEqual(
-        [got.late, got.after],
-        [null, 5],
-        `${label}: drawn before the abort`,
-      );
+      assert.deepEqual([got.late, got.after], [null, 5], `${label}: drawn before the abort`);
     } else {
-      assert.deepEqual(
-        [got.late, got.after],
-        ["AbortError", 4],
-        `${label}: abort removes it`,
-      );
+      assert.deepEqual([got.late, got.after], ["AbortError", 4], `${label}: abort removes it`);
     }
     await page.close();
   }
@@ -3729,50 +3000,30 @@ test("pen: marks and notes draw on, resolve when drawn, and stop on abort", asyn
 // --- Analytics -------------------------------------------------------------------------------
 
 const dataLayer = (page) =>
-  page.eval(() =>
-    window.dataLayer ? window.dataLayer.map((c) => Array.from(c)) : null,
-  );
+  page.eval(() => (window.dataLayer ? window.dataLayer.map((c) => Array.from(c)) : null));
 
-test("analytics: debug mode fills dataLayer with the exact event sequence", async ({
-  newPage,
-}) => {
+test("analytics: debug mode fills dataLayer with the exact event sequence", async ({ newPage }) => {
   const page = await newPage();
   await page.goto("/?analytics=debug&speed=16");
   // Autoplay reports act 1 when scene 1 starts; wait for it before pausing, or a slow runner
   // pauses first and act 1 never plays.
   await page.waitFor(() =>
-    window.dataLayer?.some(
-      (c) => c[0] === "event" && c[1] === "demo_act" && c[2]?.act === 1,
-    ),
+    window.dataLayer?.some((c) => c[0] === "event" && c[1] === "demo_act" && c[2]?.act === 1),
   );
   await page.eval(() => window.__demo.film.pause());
   await page.key("ArrowRight");
-  const before = await page.eval(
-    () => document.documentElement.dataset.theme ?? "",
-  );
+  const before = await page.eval(() => document.documentElement.dataset.theme ?? "");
   await page.eval(() => document.getElementById("theme-toggle").click());
   const theme = await page.eval(() => document.documentElement.dataset.theme);
   assert.notEqual(theme, before);
-  await page.eval(() =>
-    document.querySelector('.fc-seg[data-scene="3"]').click(),
-  );
+  await page.eval(() => document.querySelector('.fc-seg[data-scene="3"]').click());
   await page.eval(() => {
     const { film } = window.__demo;
     while (film.scene < film.sceneCount - 1) film.next();
   });
   await page.eval(() => document.getElementById("theme-toggle").click());
   const back = await page.eval(() => document.documentElement.dataset.theme);
-  const names = [
-    "problem",
-    "meet",
-    "job",
-    "prompt",
-    "plan",
-    "tailor",
-    "ship",
-    "update",
-    "cta",
-  ];
+  const names = ["problem", "meet", "job", "prompt", "plan", "tailor", "ship", "update", "cta"];
   const count = await page.eval(() => window.__demo.film.sceneCount);
   assert.equal(count, 9);
   const commands = (await dataLayer(page)).map(([cmd, a, b]) => [cmd, a, b]);
@@ -3787,9 +3038,7 @@ test("analytics: debug mode fills dataLayer with the exact event sequence", asyn
     events.every(([cmd]) => cmd === "event"),
     "only event commands after config",
   );
-  const shown = events
-    .filter(([, n]) => n === "demo_act")
-    .map(([, , p]) => p.act);
+  const shown = events.filter(([, n]) => n === "demo_act").map(([, , p]) => p.act);
   assert.deepEqual(
     events.filter(([, n]) => n === "demo_act").map(([, , p]) => p.act_name),
     shown.map((a) => names[a - 1]),
@@ -3797,17 +3046,9 @@ test("analytics: debug mode fills dataLayer with the exact event sequence", asyn
   assert.deepEqual(shown, [...new Set(shown)], "each act once");
   assert.deepEqual(shown, [1, 2, 3, 4, 5, 6, 7, 8, 9], "every act, in order");
   const order = events.map(([, n]) => n);
-  assert.equal(
-    order[0],
-    "demo_act",
-    "act 1 when autoplay starts, before any interaction",
-  );
+  assert.equal(order[0], "demo_act", "act 1 when autoplay starts, before any interaction");
   assert.equal(order[1], "tutorial_begin", "then the first interaction");
-  assert.equal(
-    order.at(-2),
-    "tutorial_complete",
-    "complete, then the second toggle",
-  );
+  assert.equal(order.at(-2), "tutorial_complete", "complete, then the second toggle");
   assert.deepEqual([...new Set(order)].sort(), [
     "demo_act",
     "theme_change",
@@ -3829,22 +3070,15 @@ test("analytics: debug mode fills dataLayer with the exact event sequence", asyn
     events.filter(([, n]) => n === "tutorial_complete"),
     [["event", "tutorial_complete", { method: "manual" }]],
   );
-  assert.ok(
-    !events.some(([, name]) => name === "page_view"),
-    "no manual page_view",
-  );
+  assert.ok(!events.some(([, name]) => name === "page_view"), "no manual page_view");
   assert.equal(
-    await page.eval(
-      () => document.querySelectorAll('script[src*="googletagmanager"]').length,
-    ),
+    await page.eval(() => document.querySelectorAll('script[src*="googletagmanager"]').length),
     0,
     "debug mode loads no Google script",
   );
 });
 
-test("analytics: off the site (127.0.0.1) nothing is set up or loaded", async ({
-  newPage,
-}) => {
+test("analytics: off the site (127.0.0.1) nothing is set up or loaded", async ({ newPage }) => {
   const page = await newPage();
   await page.goto("/");
   await page.frames(4);
@@ -3852,16 +3086,12 @@ test("analytics: off the site (127.0.0.1) nothing is set up or loaded", async ({
   assert.equal(await dataLayer(page), null);
   assert.equal(await page.eval(() => typeof window.gtag), "undefined");
   assert.equal(
-    await page.eval(
-      () => document.querySelectorAll('script[src*="googletagmanager"]').length,
-    ),
+    await page.eval(() => document.querySelectorAll('script[src*="googletagmanager"]').length),
     0,
   );
 });
 
-test("analytics: a throwing gtag does not stop the demo", async ({
-  newPage,
-}) => {
+test("analytics: a throwing gtag does not stop the demo", async ({ newPage }) => {
   const page = await newPage();
   await page.goto("/?analytics=debug");
   await page.eval(() => window.__demo.film.pause());
@@ -3876,16 +3106,12 @@ test("analytics: a throwing gtag does not stop the demo", async ({
     while (film.scene < film.sceneCount - 1) film.next();
   });
   assert.equal(
-    await page.eval(
-      () => window.__demo.film.scene === window.__demo.film.sceneCount - 1,
-    ),
+    await page.eval(() => window.__demo.film.scene === window.__demo.film.sceneCount - 1),
     true,
   );
 });
 
-test("no absolute script, stylesheet, or media URLs except Google's gtag", async ({
-  newPage,
-}) => {
+test("no absolute script, stylesheet, or media URLs except Google's gtag", async ({ newPage }) => {
   const page = await newPage();
   await page.goto("/");
   // rel=canonical names this page's own URL; nothing is fetched from it.
