@@ -1292,6 +1292,45 @@ test("film: every shot frames its target inside the free area at every size", as
   assert.deepEqual(problems, []);
 });
 
+test("scenes: scene 8's cats sit beside the page in a landscape frame, clear of its text", async ({
+  newPage,
+}) => {
+  // On a desk wide enough, Duna and Dudu celebrate beside the page (an upright phone, cropped to
+  // the role's title, has them on the page under it): their boxes cover none of the replica's
+  // text, at the end frame by jump and after the scene plays.
+  const problems = [];
+  let landscapes = 0;
+  for (const [width, height] of SIZES) {
+    const page = await newPage({ width, height, mobile: width < 800 || height < 500 });
+    await page.goto("/");
+    await pausedFilm(page);
+    const got = await page.eval(() => {
+      const { film } = window.__demo;
+      film.goTo(7);
+      const rect = (el) => el.getBoundingClientRect();
+      const resume = film.actor("resume");
+      const text = [...resume.querySelectorAll(".resume [data-id]")]
+        .filter((el) => el.textContent.trim())
+        .map(rect);
+      const overlaps = (a, b) =>
+        a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+      return {
+        shape: document.getElementById("film").dataset.shape,
+        covered: ["duna", "dudu"].flatMap((id) =>
+          text.filter((r) => overlaps(rect(film.actor(id)), r)).length ? [id] : [],
+        ),
+      };
+    });
+    if (got.shape === "landscape") {
+      landscapes++;
+      for (const id of got.covered) problems.push(`${width}×${height}: ${id} covers resume text`);
+    }
+    await page.close();
+  }
+  assert.ok(landscapes >= 4, `${landscapes} landscape sizes`);
+  assert.deepEqual(problems, []);
+});
+
 test("film: a call to action fading out can't be reached", async ({ newPage }) => {
   const page = await newPage();
   await page.goto("/");

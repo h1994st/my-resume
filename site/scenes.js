@@ -35,9 +35,9 @@
 //       closer); `text: true` marks the target's text, not its box (a strike as long as the line)
 //   note { id?, text, at, side?, gap?, size?, rotate?, weight?, on?, ink? }   a pen note; `at` is
 //       a point { x, y } (top left) or a target with `side`
-// `enter`, `note`, and `mark` cues also take `portrait` { ...fields }: used instead while the film's free
-// area is portrait (ctx.portrait()), so a phone held upright can keep a note or a cat inside a
-// cropped zoom.
+// `enter`, `move`, `note`, and `mark` cues also take `portrait` { ...fields }: used instead while
+// the film's free area is portrait (ctx.portrait()), so a phone held upright can keep a note or a
+// cat inside a cropped zoom.
 //   resume { id, state, highlight?, animate?, clear? }   the replica's state (resume-data.js
 //       keys); `clear` first wipes the pen marks on it (they would point at the old layout)
 //   proof { id, show }                   crossfades the replica's page 1 to img/tailored-1.png
@@ -779,7 +779,8 @@ function random(seed) {
 }
 
 // Moves an actor to `cue.at` (merged into where it is); returns { el, before, at }.
-function moveTo(cue, ctx) {
+function moveTo(moved, ctx) {
+  const cue = oriented(moved, ctx);
   const el = ctx.el(cue.id);
   const before = placeOf(el);
   const at = {
@@ -848,9 +849,13 @@ const NANGNANG = { x: 800, y: 640, ...CAT, z: 7 };
 const NANGNANG_PORTRAIT = { x: 500, y: 1010, ...CAT, z: 7 }; // under the stamp, below the page
 const STAMP_AT = { x: 214, y: 900, r: -6, z: 6 };
 const STAMP_AREA = { x: 196, y: 850, w: 620, h: 190 }; // where it lands, tilt included
-// Scene 8's celebration: Duna and Dudu hop onto the page under the new role.
-const DUNA_8 = { x: 150, y: 610, ...CAT, z: 5 };
-const DUDU_8 = { x: 0, y: 640, ...CAT, z: 4 };
+// Scene 8's celebration: Duna and Dudu on the desk left of the page, level with the new role,
+// clear of the page's text. An upright phone crops to the role's title and has no room beside
+// the page: there they sit on the page, under the role.
+const DUNA_8 = { x: -360, y: 110, ...CAT, z: 5 };
+const DUDU_8 = { x: -640, y: 160, ...CAT, z: 4 };
+const DUNA_8_PORTRAIT = { x: 150, y: 610, ...CAT, z: 5 };
+const DUDU_8_PORTRAIT = { x: 0, y: 640, ...CAT, z: 4 };
 const TERM_B = { x: -2040, y: 0, z: 3 };
 
 const bullet = (id) => ({ actor: "resume", sel: `[data-id="${id}"]` });
@@ -1745,16 +1750,16 @@ export const SCENES = [
         hold: 1200,
       },
       {
-        // She got the job: the terminal's work is done. Duna hops onto the page under her new
-        // role, Dudu joins her and cheers. (A desk wide enough frames the role with them; an
-        // upright phone crops to the role's title and the two cats under it.)
+        // She got the job: the terminal's work is done. Duna hops up beside her new role, Dudu
+        // joins her and cheers. (A desk wide enough frames the role with them; an upright phone
+        // crops to the role's title and the two cats, on the page under it.)
         shot: {
           target: [DUDU_8, DUNA_8],
           grow: { top: 30, bottom: 10 },
           context: NEW_ROLE,
           legible: 0.75,
           portrait: {
-            target: [NEW_ROLE_TITLE, DUDU_8, DUNA_8],
+            target: [NEW_ROLE_TITLE, DUDU_8_PORTRAIT, DUNA_8_PORTRAIT],
             grow: { top: 30, bottom: 10, left: 10 },
             minScale: READ,
             anchor: "start",
@@ -1767,13 +1772,20 @@ export const SCENES = [
             id: "dudu",
             kind: "cat",
             at: DUDU_8,
+            portrait: { at: DUDU_8_PORTRAIT },
             from: { dx: -360, dy: -20, o: 0 },
             props: { name: "dudu" },
             wait: false,
             delay: 300,
           },
-          { do: "move", id: "duna", at: { x: DUNA_8.x, y: DUNA_8.y }, walk: true },
-          { do: "confetti", at: { x: -200, y: 140, w: 1100, h: 900 }, wait: false },
+          {
+            do: "move",
+            id: "duna",
+            at: { x: DUNA_8.x, y: DUNA_8.y },
+            portrait: { at: { x: DUNA_8_PORTRAIT.x, y: DUNA_8_PORTRAIT.y } },
+            walk: true,
+          },
+          { do: "confetti", at: { x: -700, y: 40, w: 1600, h: 1000 }, wait: false },
           { do: "pose", id: "duna", pose: "jump", wait: false, delay: 100 },
           { do: "pose", id: "dudu", pose: "wave", wait: false, delay: 600 },
         ],
