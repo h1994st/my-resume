@@ -1,9 +1,10 @@
-// Wires the page: the theme toggle, the launch film (film.js playing scenes.js), the product page
-// below it (page.js), and analytics. Exposes window.__demo = { film, events } for the browser
-// tests once the film is ready (and page.js sets window.__page).
+// Wires the page: the language (i18n.js) and theme toggles, the launch film (film.js playing
+// scenes.js), the product page below it (page.js), and analytics. Exposes window.__demo = { film,
+// events } for the browser tests once the film is ready (and page.js sets window.__page).
 
 import { createFilm } from "./film.js";
-import { initPage } from "./page.js";
+import { initLang } from "./i18n.js";
+import { initPage, refreshPage } from "./page.js";
 import { ACTORS, CUES, SCENES } from "./scenes.js";
 import { initTheme } from "./theme.js";
 
@@ -16,6 +17,17 @@ function track(name, params) {
   if (analytics) analytics.track(name, params);
   else if (early.length < 16) early.push([name, params]);
 }
+
+// The language first: the film and the page are built in it. The toggle only reports: not the
+// load, not ?lang.
+initLang({
+  onChange: (language) => {
+    events.push({ name: "language", params: { language } });
+    track("language_change", { language });
+    film.relang();
+    refreshPage();
+  },
+});
 
 // The toggle only: not the system setting, not the load.
 initTheme({

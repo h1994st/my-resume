@@ -31,7 +31,7 @@ import {
 import http from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const SITE = path.resolve(process.env.SITE_DIR ?? path.join(REPO, "build/site"));
@@ -388,8 +388,9 @@ function test(name, fn) {
   TESTS.push({ name, fn });
 }
 
-// The smoke tier (each also runs in full): loads, end frames by jump, themes, reduced motion,
-// analytics, the call to action, the sections' text, and the head. Names must match a test.
+// The smoke tier (each also runs in full): loads, end frames by jump (English and Chinese),
+// themes, reduced motion, analytics, the call to action, the sections' text, the head, and the
+// string tables. Names must match a test.
 const SMOKE = new Set([
   "smoke: the page loads without errors in light and dark",
   "smoke: every scene's end frame by jump at 1920×1080 and 390×844",
@@ -403,6 +404,8 @@ const SMOKE = new Set([
   "theme: the toggle shows the theme on screen before main.js runs",
   "analytics: debug mode fills dataLayer with the exact event sequence",
   "analytics: off the site (127.0.0.1) nothing is set up or loaded",
+  "lang: every string is in both languages, and the WenKai subset covers the Chinese",
+  "smoke: Chinese end frames by jump at 390×844, notes in view, no horizontal scroll",
 ]);
 const TIERS = ["smoke", "full"];
 
@@ -1172,9 +1175,9 @@ test("film: every shot frames its target inside the free area at every size", as
   // still on the desk cut by the film's edge.
   const PHONES = new Set(["390x844", "844x390"]);
   const problems = [];
-  for (const [width, height] of SIZES) {
+  for (const [lang, [width, height]] of ["en", "zh"].flatMap((l) => SIZES.map((s) => [l, s]))) {
     const page = await newPage({ width, height, mobile: width < 800 || height < 500 });
-    await page.goto("/");
+    await page.goto(lang === "en" ? "/" : `/?lang=${lang}`);
     await pausedFilm(page);
     const shots = await page.eval(async () => {
       const { SCENES } = await import("./scenes.js");
@@ -1248,7 +1251,7 @@ test("film: every shot frames its target inside the free area at every size", as
       r.bottom <= box.bottom + 2;
     const size = `${width}x${height}`;
     for (const s of shots) {
-      const at = `${width}×${height} ${s.at}`;
+      const at = `${lang} ${width}×${height} ${s.at}`;
       // Any note on the desk (left from an earlier step too): cut by the film's left, right, or
       // top edge is a problem; one running under the caption is not (the scrim, from 56 px
       // above the caption down, fades whatever lies there).
@@ -1882,34 +1885,45 @@ function checkFilmLayout(m, label) {
   }
 }
 
+// Chinese (?lang=zh) is checked at every size and screenshotted at these.
+const ZH_SHOTS = new Set(["390x844", "1920x1080"]);
+
 test("layout: every scene's end frame at every size, in both themes, with screenshots", async ({
   newPage,
 }) => {
   const problems = [];
-  for (const theme of ["light", "dark"]) {
-    for (const [width, height] of SIZES) {
-      // Reduced motion holds each pose's key frame, so the screenshots are stable.
-      const page = await newPage({
-        width,
-        height,
-        mobile: width < 800 || height < 500,
-        deviceScaleFactor: 1,
-        media: [...scheme(theme), ...REDUCED],
-      });
-      await page.goto("/");
-      await pausedFilm(page);
-      const count = await page.eval(() => window.__demo.film.sceneCount);
-      for (let n = 0; n < count; n++) {
-        await page.eval((i) => window.__demo.film.goTo(i), n);
-        await page.frames(2);
-        await page.screenshot(`film-${n + 1}-${theme}-${width}x${height}`);
-        try {
-          checkFilmLayout(await filmLayout(page), `scene ${n + 1} at ${width}×${height} ${theme}`);
-        } catch (err) {
-          problems.push(err.message.split("\n")[0]);
+  for (const lang of ["en", "zh"]) {
+    for (const theme of ["light", "dark"]) {
+      for (const [width, height] of SIZES) {
+        const size = `${width}x${height}`;
+        const shots = lang === "en" || ZH_SHOTS.has(size);
+        // Reduced motion holds each pose's key frame, so the screenshots are stable.
+        const page = await newPage({
+          width,
+          height,
+          mobile: width < 800 || height < 500,
+          deviceScaleFactor: 1,
+          media: [...scheme(theme), ...REDUCED],
+        });
+        await page.goto(lang === "en" ? "/" : `/?lang=${lang}`);
+        await pausedFilm(page);
+        const count = await page.eval(() => window.__demo.film.sceneCount);
+        for (let n = 0; n < count; n++) {
+          await page.eval((i) => window.__demo.film.goTo(i), n);
+          await page.frames(2);
+          const suffix = lang === "en" ? "" : `-${lang}`;
+          if (shots) await page.screenshot(`film-${n + 1}-${theme}-${size}${suffix}`);
+          try {
+            checkFilmLayout(
+              await filmLayout(page),
+              `${lang} scene ${n + 1} at ${width}×${height} ${theme}`,
+            );
+          } catch (err) {
+            problems.push(err.message.split("\n")[0]);
+          }
         }
+        await page.close();
       }
-      await page.close();
     }
   }
   assert.deepEqual(problems, []);
@@ -2080,9 +2094,11 @@ const quickStart = () => {
 };
 
 // The sections' content and calm, as sectionsState measured them at one size and theme: fails
-// at once on missing content; adds layout problems (contrast, overflow) to `problems`.
-function checkSections(got, label, problems) {
+// at once on missing content; adds layout problems (contrast, overflow) to `problems`. The text
+// checks are the English page's; in Chinese (`lang` "zh") the structure, the pen, and the calm.
+function checkSections(got, label, problems, lang = "en") {
   const quick = quickStart();
+  const english = lang === "en";
   assert.deepEqual(got.order, SECTIONS, `${label}: sections in order`);
   assert.deepEqual(
     got.figures.map((f) => [f.src, f.href]),
@@ -2097,11 +2113,12 @@ function checkSections(got, label, problems) {
     `${label}: page images load`,
   );
   assert.equal(got.items, 6, "six things to notice");
+  // Code and commands are the same in both languages.
   assert.match(got.text, /Package resume Error: Unknown role key 'windowsil'\./);
   assert.match(got.text, /\.\/canonical\/resume\.tex:60:/);
   assert.match(got.text, /\\defrole\{windowsill\}/);
   assert.match(got.text, /\\begin\{role\}\{windowsill\}/);
-  assert.match(got.text, /51 page positions/);
+  if (english) assert.match(got.text, /51 page positions/);
   assert.deepEqual(got.commands, quick, "the README's quick start");
   for (const href of [
     "https://github.com/h1994st/my-resume",
@@ -2113,7 +2130,7 @@ function checkSections(got, label, problems) {
   }
   // How it works: three beats, each with a decorative cat and pen marks.
   assert.equal(got.how.length, 3, "three beats");
-  assert.match(got.how[0].title, /once/i);
+  if (english) assert.match(got.how[0].title, /once/i);
   assert.match(got.how[1].title, /\/customize-resume/);
   assert.match(got.how[2].title, /\/update-resume/);
   for (const beat of got.how) {
@@ -2126,17 +2143,19 @@ function checkSections(got, label, problems) {
   }
   // Credits: the cast, the name, the license, and the fonts.
   assert.deepEqual(got.credits.cats, ["duna", "dudu", "nangnang"]);
-  for (const s of [
-    "Duna = Du(du) + Na(ngnang)",
-    "Dudu",
-    "Nangnang",
-    "MIT",
-    "SIL Open Font License",
-    "Source Serif 4",
-    "Source Sans 3",
-    "Caveat",
-    "Duna Feline is fictional.",
-  ]) {
+  for (const s of english
+    ? [
+        "Duna = Du(du) + Na(ngnang)",
+        "Dudu",
+        "Nangnang",
+        "MIT",
+        "SIL Open Font License",
+        "Source Serif 4",
+        "Source Sans 3",
+        "Caveat",
+        "Duna Feline is fictional.",
+      ]
+    : ["MIT", "Source Serif 4", "Source Sans 3", "Caveat", "LXGW WenKai"]) {
     assert.ok(got.credits.text.includes(s), `credits: "${s}"`);
   }
   assert.ok(
@@ -2168,10 +2187,15 @@ function checkSections(got, label, problems) {
 test("sections: the template, how it works, get started, and credits, at every size in both themes", async ({
   newPage,
 }) => {
+  // English at every size; Chinese (?lang=zh) at the sizes in ZH_SHOTS.
+  const runs = [
+    ...SIZES.map((size) => ["en", size]),
+    ...SIZES.filter(([w, h]) => ZH_SHOTS.has(`${w}x${h}`)).map((size) => ["zh", size]),
+  ];
   const problems = [];
   for (const theme of ["light", "dark"]) {
-    for (const [width, height] of SIZES) {
-      const label = `${width}×${height} ${theme}`;
+    for (const [lang, [width, height]] of runs) {
+      const label = `${lang} ${width}×${height} ${theme}`;
       const page = await newPage({
         width,
         height,
@@ -2179,16 +2203,19 @@ test("sections: the template, how it works, get started, and credits, at every s
         deviceScaleFactor: 1,
         media: scheme(theme),
       });
-      await page.goto("/");
+      await page.goto(lang === "en" ? "/" : `/?lang=${lang}`);
       await page.eval(() => window.__demo.film.pause());
       await readPage(page);
       await page.waitFor(() =>
         [...document.querySelectorAll("#template img")].every((i) => i.complete && i.naturalWidth),
       );
       const got = await sectionsState(page);
-      checkSections(got, label, problems);
+      checkSections(got, label, problems, lang);
+      // Nothing wider than a phone zooms its page out.
+      if (got.vw !== width) problems.push(`${label}: layout viewport ${got.vw} px wide`);
+      const suffix = lang === "en" ? "" : `-${lang}`;
       for (const id of SECTIONS) {
-        await page.screenshotOf(`#${id}`, `section-${id}-${theme}-${width}x${height}`);
+        await page.screenshotOf(`#${id}`, `section-${id}-${theme}-${width}x${height}${suffix}`);
       }
       await page.close();
     }
@@ -2683,6 +2710,498 @@ test("theme: the toggle shows the theme on screen before main.js runs", async ({
   }
 });
 
+// --- Tests: languages ------------------------------------------------------------------------
+
+// The string tables (site/i18n.js), read in Node.
+const i18n = () => import(pathToFileURL(path.join(REPO, "site/i18n.js")).href);
+const WENKAI = path.join(REPO, "site/fonts/wenkai");
+
+// The language as the page shows it: the stored choice, <html lang> and data-lang, whether the
+// strings are applied (i18n-ready), and the toggle.
+const langState = (page) =>
+  page.eval(() => {
+    const root = document.documentElement;
+    const button = document.getElementById("lang-toggle");
+    let stored;
+    try {
+      stored = localStorage.getItem("lang");
+    } catch {
+      stored = "unavailable";
+    }
+    return {
+      stored,
+      lang: root.lang,
+      data: root.dataset.lang ?? null,
+      ready: root.classList.contains("i18n-ready"),
+      toggle: button && {
+        text: button.textContent.trim(),
+        lang: button.querySelector("[lang]")?.getAttribute("lang") ?? null,
+        pressed: button.getAttribute("aria-pressed"),
+      },
+    };
+  });
+const EN_STATE = {
+  lang: "en",
+  data: "en",
+  toggle: { text: "中文", lang: "zh-Hans", pressed: null },
+};
+const ZH_STATE = { lang: "zh-Hans", data: "zh", toggle: { text: "EN", lang: "en", pressed: null } };
+const forgetLang = (page) => page.eval(() => localStorage.removeItem("lang"));
+
+// The page's translatable text and attributes that differ from `strings` (one table of
+// site/i18n.js): [data-i18n] text, [data-i18n-attr] attributes, the title and description.
+const langMismatches = (page, strings) =>
+  page.eval((table) => {
+    const norm = (s) => s.replace(/\s+/g, " ").trim();
+    const plain = (html) => {
+      const tpl = document.createElement("template");
+      tpl.innerHTML = html;
+      return norm(tpl.content.textContent);
+    };
+    const out = [];
+    for (const el of document.querySelectorAll("[data-i18n]")) {
+      const id = el.dataset.i18n;
+      if (typeof table[id] !== "string") out.push(`${id}: no string`);
+      else if (norm(el.textContent) !== plain(table[id]))
+        out.push(`${id}: "${norm(el.textContent)}"`);
+    }
+    for (const el of document.querySelectorAll("[data-i18n-attr]")) {
+      for (const pair of el.dataset.i18nAttr.trim().split(/\s+/)) {
+        const [attr, id] = pair.split(":");
+        if (el.getAttribute(attr) !== table[id])
+          out.push(`${id} (${attr}): "${el.getAttribute(attr)}"`);
+      }
+    }
+    if (document.title !== table["head.title"]) out.push(`title: "${document.title}"`);
+    const description = document.querySelector('meta[name="description"]').content;
+    if (description !== table["head.description"]) out.push(`description: "${description}"`);
+    return out;
+  }, strings);
+
+// The film's caption is the current scene's, in the page's language (scenes.js reads i18n.js).
+const captionShown = (page) =>
+  page.eval(async () => {
+    const { SCENES } = await import("./scenes.js");
+    const s = SCENES[window.__demo.film.scene];
+    return document.querySelector(".film-line").textContent === s.caption.replace(/\*/g, "");
+  });
+const captionIs = (page, caption) =>
+  page.waitFor((c) => document.querySelector(".film-line").textContent === c, {
+    args: [caption.replace(/\*/g, "")],
+  });
+
+test("lang: English by default; the toggle switches to Chinese and keeps it across a reload", async ({
+  newPage,
+}) => {
+  const { STRINGS } = await i18n();
+  const page = await newPage({ width: 390, height: 844, mobile: true });
+  await page.goto("/");
+  await forgetLang(page);
+  try {
+    await page.goto("/");
+    assert.deepEqual(await langState(page), { stored: null, ready: true, ...EN_STATE });
+    assert.deepEqual(await langMismatches(page, STRINGS.en), [], "English");
+    await page.eval(() => window.__demo.film.pause());
+    const scene = await page.eval(() => window.__demo.film.scene);
+    const id = ["problem", "meet"][scene];
+    await page.click("#lang-toggle");
+    await captionIs(page, STRINGS.zh[`scene.${id}.caption`]);
+    assert.deepEqual(await langState(page), { stored: "zh", ready: true, ...ZH_STATE });
+    assert.deepEqual(await langMismatches(page, STRINGS.zh), [], "Chinese");
+    assert.deepEqual(
+      await page.eval(() => window.__demo.events.filter((e) => e.name === "language")),
+      [{ name: "language", params: { language: "zh" } }],
+      "onChange reports the choice",
+    );
+    await page.goto("/");
+    assert.deepEqual(await langState(page), { stored: "zh", ready: true, ...ZH_STATE }, "reload");
+    assert.deepEqual(await langMismatches(page, STRINGS.zh), [], "Chinese after a reload");
+    assert.ok(await captionShown(page), "the caption in Chinese after a reload");
+    assert.deepEqual(
+      await page.eval(() => window.__demo.events.filter((e) => e.name === "language")),
+      [],
+      "not reported on load",
+    );
+    // Both toggles in the one-line header on a phone, each a 44 px target.
+    const m = await page.eval(() => {
+      const hit = (id, x, y) => document.elementFromPoint(x, y)?.closest(`#${id}`) !== null;
+      const target = (id) => {
+        const b = document.getElementById(id).getBoundingClientRect();
+        const cx = b.left + b.width / 2;
+        const cy = b.top + b.height / 2;
+        return {
+          left: b.left,
+          right: b.right,
+          ok: [
+            [cx, cy - 21],
+            [cx, cy + 21],
+            [cx - 21, cy],
+            [cx + 21, cy],
+          ].every(([x, y]) => hit(id, x, y)),
+        };
+      };
+      return {
+        vw: innerWidth,
+        scrollWidth: document.documentElement.scrollWidth,
+        header: document.querySelector(".site-title").getBoundingClientRect().height,
+        theme: target("theme-toggle"),
+        lang: target("lang-toggle"),
+      };
+    });
+    assert.equal(m.header, 48, "header height");
+    assert.ok(m.scrollWidth <= m.vw, "horizontal scroll");
+    for (const t of ["theme", "lang"]) {
+      assert.ok(m[t].left >= 0 && m[t].right <= m.vw, `${t} toggle off screen`);
+      assert.ok(m[t].ok, `${t} toggle target under 44px`);
+    }
+    await page.eval(() => window.__demo.film.pause());
+    await page.screenshot("lang-zh-390x844");
+    const now = await page.eval(() => window.__demo.film.scene);
+    await page.click("#lang-toggle");
+    await captionIs(page, STRINGS.en[`scene.${["problem", "meet"][now]}.caption`]);
+    assert.deepEqual(await langState(page), { stored: "en", ready: true, ...EN_STATE });
+    assert.deepEqual(await langMismatches(page, STRINGS.en), [], "English again");
+  } finally {
+    await forgetLang(page);
+  }
+});
+
+test("lang: ?lang=zh or ?lang=en forces a language for the visit, without storing it", async ({
+  newPage,
+}) => {
+  const { STRINGS } = await i18n();
+  const page = await newPage();
+  await page.goto("/");
+  await forgetLang(page);
+  try {
+    await page.goto("/?lang=zh");
+    assert.deepEqual(await langState(page), { stored: null, ready: true, ...ZH_STATE });
+    assert.deepEqual(await langMismatches(page, STRINGS.zh), [], "Chinese");
+    assert.ok(await captionShown(page), "the caption in Chinese");
+    await page.goto("/");
+    assert.deepEqual(await langState(page), { stored: null, ready: true, ...EN_STATE });
+    await page.eval(() => localStorage.setItem("lang", "zh"));
+    await page.goto("/?lang=en");
+    assert.deepEqual(await langState(page), { stored: "zh", ready: true, ...EN_STATE });
+    assert.deepEqual(await langMismatches(page, STRINGS.en), [], "English");
+    await page.goto("/?lang=fr");
+    assert.deepEqual(await langState(page), { stored: "zh", ready: true, ...ZH_STATE }, "?lang=fr");
+  } finally {
+    await forgetLang(page);
+  }
+});
+
+test("lang: a stored Chinese applies before the first paint, its text hidden until applied", async ({
+  newPage,
+}) => {
+  const { STRINGS } = await i18n();
+  const page = await newPage();
+  await page.goto("/");
+  await page.eval(() => localStorage.setItem("lang", "zh"));
+  try {
+    // Records data-lang changes and the language at the first frame and at load.
+    await page.send("Page.addScriptToEvaluateOnNewDocument", {
+      source: `
+        window.__paint = [];
+        const note = (when) => window.__paint.push({
+          when,
+          data: document.documentElement?.dataset.lang ?? null,
+          lang: document.documentElement?.lang ?? null,
+          body: Boolean(document.body),
+        });
+        new MutationObserver(() => note("attr")).observe(document, {
+          attributes: true,
+          attributeFilter: ["data-lang"],
+          subtree: true,
+        });
+        requestAnimationFrame(() => note("frame"));
+        addEventListener("load", () => note("load"));
+      `,
+    });
+    await page.goto("/");
+    const paint = await page.eval(() => window.__paint);
+    const attr = paint.filter((p) => p.when === "attr");
+    assert.equal(attr.length, 1, `one data-lang change: ${JSON.stringify(paint)}`);
+    assert.deepEqual([attr[0].data, attr[0].body], ["zh", false], "set while the head is parsed");
+    for (const when of ["frame", "load"]) {
+      const p = paint.find((x) => x.when === when);
+      assert.deepEqual([p.data, p.lang], ["zh", "zh-Hans"], when);
+    }
+
+    // Without main.js (only the inline scripts run): the language and the toggle are set, and
+    // the English that Chinese would replace stays hidden, until a fallback shows it after all.
+    const hidden = (p) =>
+      p.eval(() =>
+        [...document.querySelectorAll("[data-i18n]")]
+          .filter((el) => el.textContent.trim())
+          .map((el) => [el.dataset.i18n, getComputedStyle(el).visibility]),
+      );
+    const blocked = async (lang) => {
+      const p = await newPage();
+      await p.goto("/");
+      await p.eval((l) => localStorage.setItem("lang", l), lang);
+      await p.send("Fetch.enable", { patterns: [{ urlPattern: "*/main.js" }] });
+      const off = p.cdp.on((msg) => {
+        if (msg.sessionId !== p.sessionId || msg.method !== "Fetch.requestPaused") return;
+        p.send("Fetch.failRequest", {
+          requestId: msg.params.requestId,
+          errorReason: "BlockedByClient",
+        });
+      });
+      await p.goto("/", { waitForDemo: false });
+      off();
+      return p;
+    };
+    const zh = await blocked("zh");
+    const { stored, ...state } = await langState(zh);
+    assert.equal(stored, "zh");
+    assert.deepEqual(state, { ready: false, ...ZH_STATE }, "Chinese before main.js");
+    const before = await hidden(zh);
+    assert.ok(before.length > 40, `${before.length} translatable texts`);
+    assert.deepEqual(
+      before.filter(([, v]) => v !== "hidden"),
+      [],
+      "English shows before the Chinese is applied",
+    );
+    await sleep(3200);
+    assert.deepEqual(
+      (await hidden(zh)).filter(([, v]) => v !== "visible"),
+      [],
+      "the text shows after all when i18n.js never runs",
+    );
+    // English: shown at once, and the page's own text is the English table.
+    const en = await blocked("en");
+    assert.deepEqual(
+      (await hidden(en)).filter(([, v]) => v !== "visible"),
+      [],
+      "English is never hidden",
+    );
+    assert.deepEqual(await langMismatches(en, STRINGS.en), [], "index.html's text is the table's");
+  } finally {
+    await forgetLang(page);
+  }
+});
+
+test("lang: a switch mid-film re-renders the same scene and step in the other language", async ({
+  newPage,
+}) => {
+  const { STRINGS } = await i18n();
+  const { en, zh } = STRINGS;
+  const page = await newPage();
+  await page.goto("/");
+  await forgetLang(page);
+  try {
+    await page.goto("/");
+    await pausedFilm(page);
+    // Paused on scene 2's end frame: Chinese, then English again, is the same frame.
+    await page.eval(() => window.__demo.film.goTo(1));
+    const before = await frameState(page);
+    const step = await page.eval(() => window.__demo.film.step);
+    await page.click("#lang-toggle");
+    await captionIs(page, zh["scene.meet.caption"]);
+    const after = await frameState(page);
+    const film = await page.eval(() => {
+      const f = window.__demo.film;
+      const root = document.getElementById("film");
+      return {
+        scene: f.scene,
+        step: f.step,
+        playing: f.playing,
+        name: root.querySelector(".film-name").textContent,
+        prev: root.querySelector('[data-ctl="prev"]').getAttribute("aria-label"),
+        play: root.querySelector('[data-ctl="play"]').getAttribute("aria-label"),
+        chapter: root.querySelector(".fc-seg").getAttribute("aria-label"),
+        transcript: root.querySelector(".visually-hidden li:nth-child(2)").textContent,
+      };
+    });
+    assert.deepEqual(
+      [film.scene, film.step, film.playing],
+      [1, step, false],
+      "same scene and step, still paused",
+    );
+    assert.equal(film.name, zh["scene.meet.name"]);
+    assert.equal(film.prev, zh["film.prev"]);
+    assert.equal(film.play, zh["film.play"]);
+    assert.equal(
+      film.chapter,
+      zh["film.chapter"].replace("{n}", "1").replace("{name}", zh["scene.problem.name"]),
+    );
+    assert.ok(film.transcript.includes(zh["scene.meet.transcript"][0]), "the transcript");
+    assert.deepEqual(
+      after.pen.filter((p) => p.text !== null).map((p) => p.text),
+      [zh["note.hi"], zh["note.complete"], zh["note.once"]],
+      "the notes in Chinese",
+    );
+    assert.deepEqual(
+      after.actors.map((a) => [a.id, a.box, a.text]),
+      before.actors.map((a) => [a.id, a.box, a.text]),
+      "the same actors; the replica stays English",
+    );
+    await page.click("#lang-toggle");
+    await captionIs(page, en["scene.meet.caption"]);
+    assert.deepEqual(await frameState(page), before, "English again: the same frame");
+
+    // Playing: the step in flight ends at once in Chinese, and playback goes on from there.
+    await page.eval(() => {
+      window.__demo.film.goTo(4);
+      window.__demo.film.play();
+    });
+    await page.waitFor(() => window.__demo.film.animating && window.__demo.film.step === 0);
+    await page.click("#lang-toggle");
+    await captionIs(page, zh["scene.plan.caption"]);
+    const playing = await page.eval(() => {
+      const f = window.__demo.film;
+      return {
+        scene: f.scene,
+        step: f.step,
+        playing: f.playing,
+        term: f.actor("term").textContent,
+      };
+    });
+    assert.equal(playing.scene, 4, "same scene");
+    assert.ok(playing.step <= 1, `step ${playing.step}`);
+    assert.ok(playing.playing, "still playing");
+    for (const s of [zh["term.plan.intro"], zh["term.plan.fit"], zh["term.plan.signal.1"]]) {
+      assert.ok(playing.term.includes(s), `terminal: ${s}`);
+    }
+    // The evidence quotes the (English) resume; commands and their output stay as printed.
+    for (const s of [
+      "Monitored 400+ birds a day (Sunbeam)",
+      "Bash(just new granary senior-mouser)",
+    ]) {
+      assert.ok(playing.term.includes(s), `terminal: ${s}`);
+    }
+    await page.eval(() => window.__demo.film.pause());
+  } finally {
+    await forgetLang(page);
+  }
+});
+
+test("lang: every string is in both languages, and the WenKai subset covers the Chinese", async () => {
+  const { STRINGS } = await i18n();
+  const { en, zh } = STRINGS;
+  assert.deepEqual(Object.keys(zh).sort(), Object.keys(en).sort(), "the same ids");
+  const vars = (s) => [...String(s).matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort();
+  const hrefs = (s) => [...String(s).matchAll(/href="([^"]+)"/g)].map((m) => m[1]);
+  for (const id of Object.keys(en)) {
+    assert.equal(Array.isArray(zh[id]), Array.isArray(en[id]), `${id}: a list in both or neither`);
+    assert.deepEqual(vars(zh[id]), vars(en[id]), `${id}: the same placeholders`);
+    for (const href of hrefs(en[id])) assert.ok(zh[id].includes(href), `${id}: links ${href}`);
+    if (/data-pen=/.test(en[id])) assert.match(zh[id], /data-pen=/, `${id}: keeps its pen mark`);
+  }
+  // Every id the page and the scripts name has a string.
+  const used = new Set();
+  const html = readFileSync(path.join(REPO, "site/index.html"), "utf8");
+  for (const m of html.matchAll(/data-i18n="([^"]+)"/g)) used.add(m[1]);
+  for (const m of html.matchAll(/data-i18n-attr="([^"]+)"/g)) {
+    for (const pair of m[1].trim().split(/\s+/)) used.add(pair.split(":")[1]);
+  }
+  for (const file of ["film.js", "scenes.js", "main.js", "page.js", "i18n.js"]) {
+    const js = readFileSync(path.join(REPO, "site", file), "utf8");
+    for (const m of js.matchAll(/\bt\(\s*"([^"]+)"/g)) used.add(m[1]);
+  }
+  assert.ok(used.size > 60, `${used.size} ids in use`);
+  assert.deepEqual(
+    [...used].filter((id) => !(id in en)),
+    [],
+    "ids with no string",
+  );
+  // The Chinese strings' characters are all in the WenKai subset (chars.txt, subset.sh).
+  const chars = new Set(readFileSync(path.join(WENKAI, "chars.txt"), "utf8"));
+  const missing = new Set();
+  for (const value of Object.values(zh)) {
+    for (const s of [value].flat())
+      for (const c of s) if (c !== "\n" && !chars.has(c)) missing.add(c);
+  }
+  assert.deepEqual([...missing], [], "characters missing from chars.txt: run subset.sh");
+  const script = path.join(WENKAI, "subset.sh");
+  assert.ok(statSync(script).mode & 0o100, "subset.sh is executable");
+  assert.match(readFileSync(script, "utf8"), /lxgw\/LxgwWenKai\/releases\/.*v\d+\.\d+/);
+  for (const dir of [WENKAI, path.join(SITE, "fonts/wenkai")]) {
+    assert.ok(existsSync(path.join(dir, "lxgw-wenkai-medium-subset.woff2")), `woff2 in ${dir}`);
+    assert.match(
+      readFileSync(path.join(dir, "OFL.txt"), "utf8"),
+      /SIL OPEN FONT LICENSE Version 1\.1/,
+    );
+  }
+});
+
+test("smoke: Chinese end frames by jump at 390×844, notes in view, no horizontal scroll", async ({
+  newPage,
+}) => {
+  const problems = [];
+  const page = await newPage({ width: 390, height: 844, mobile: true, media: REDUCED });
+  await page.goto("/?lang=zh");
+  await pausedFilm(page);
+  assert.equal(await page.eval(() => document.documentElement.lang), "zh-Hans");
+  // Nothing wider than the phone: it would zoom the page out (a wider layout viewport), which
+  // the scroll-width checks can't see.
+  assert.deepEqual(await page.eval(() => [innerWidth, innerHeight]), [390, 844], "layout viewport");
+  const count = await page.eval(() => window.__demo.film.sceneCount);
+  for (let n = 0; n < count; n++) {
+    const label = `zh scene ${n + 1} at 390×844`;
+    await page.eval((i) => window.__demo.film.goTo(i), n);
+    await page.frames(2);
+    try {
+      checkFilmLayout(await filmLayout(page), label);
+    } catch (err) {
+      problems.push(err.message.split("\n")[0]);
+    }
+    if (!(await captionShown(page))) problems.push(`${label}: caption not in Chinese`);
+    // The notes the last shot frames (written from its step on) inside the free area; no note
+    // cut by the film's left, right, or top edge (one under the caption's scrim is fine).
+    const { free, notes } = await page.eval(async (i) => {
+      const { SCENES } = await import("./scenes.js");
+      const { film } = window.__demo;
+      const steps = SCENES[i].steps;
+      const last = steps.findLastIndex((s) => s.shot);
+      const framed = new Set(
+        steps
+          .slice(Math.max(0, last))
+          .flatMap((s) => (s.cues ?? []).filter((c) => c.do === "note" && c.id).map((c) => c.id)),
+      );
+      const box = document.getElementById("film").getBoundingClientRect();
+      return {
+        free: {
+          left: box.left,
+          right: box.right,
+          top: box.top,
+          bottom: document.querySelector(".film-caption").getBoundingClientRect().top,
+        },
+        notes: [...film.world.querySelectorAll(".pen-note")].map((el) => {
+          const r = el.getBoundingClientRect();
+          return {
+            text: el.textContent,
+            framed: framed.has(el.dataset.note),
+            r: { left: r.left, right: r.right, top: r.top, bottom: r.bottom },
+          };
+        }),
+      };
+    }, n);
+    for (const note of notes) {
+      const { left, right, top, bottom } = note.r;
+      const inside =
+        left >= free.left - 2 &&
+        right <= free.right + 2 &&
+        top >= free.top - 2 &&
+        bottom <= free.bottom + 2;
+      if (note.framed && !inside) problems.push(`${label}: note "${note.text}" out of view`);
+      if (
+        top >= free.bottom - 56 ||
+        bottom <= free.top ||
+        right <= free.left ||
+        left >= free.right
+      ) {
+        continue; // under the caption's scrim, or off the film
+      }
+      if (left < free.left - 2 || right > free.right + 2 || top < free.top - 2) {
+        problems.push(`${label}: note "${note.text}" cut by the film's edge`);
+      }
+    }
+  }
+  assert.deepEqual(problems, []);
+});
+
 test("assembled site: the Caveat fonts and their license", async () => {
   const dir = path.join(SITE, "fonts/caveat");
   for (const file of ["caveat-latin-400-normal.woff2", "caveat-latin-600-normal.woff2"]) {
@@ -3091,6 +3610,32 @@ test("analytics: off the site (127.0.0.1) nothing is set up or loaded", async ({
   );
 });
 
+test("analytics: language_change on the toggle only, not on load or ?lang", async ({ newPage }) => {
+  const page = await newPage();
+  await page.goto("/");
+  await forgetLang(page);
+  try {
+    const changes = async () =>
+      (await dataLayer(page))
+        .filter(([cmd, name]) => cmd === "event" && name === "language_change")
+        .map(([, , params]) => params);
+    await page.goto("/?analytics=debug&lang=zh");
+    await page.waitFor(() => window.dataLayer?.some((c) => c[0] === "config"));
+    await page.eval(() => window.__demo.film.pause());
+    assert.deepEqual(await changes(), [], "none for ?lang");
+    await page.eval(() => document.getElementById("lang-toggle").click());
+    await page.eval(() => document.getElementById("lang-toggle").click());
+    assert.deepEqual(await changes(), [{ language: "en" }, { language: "zh" }]);
+    // The choice is stored now: a reload in Chinese reports nothing.
+    await page.goto("/?analytics=debug");
+    await page.waitFor(() => window.dataLayer?.some((c) => c[0] === "config"));
+    assert.equal(await page.eval(() => document.documentElement.lang), "zh-Hans");
+    assert.deepEqual(await changes(), [], "none on load");
+  } finally {
+    await forgetLang(page);
+  }
+});
+
 test("analytics: a throwing gtag does not stop the demo", async ({ newPage }) => {
   const page = await newPage();
   await page.goto("/?analytics=debug");
@@ -3136,17 +3681,20 @@ test("no absolute script, stylesheet, or media URLs except Google's gtag", async
     "pen.js",
     "kit.js",
     "page.js",
+    "i18n.js",
     "style.css",
   ]) {
     const text = readFileSync(path.join(SITE, file), "utf8");
     const found = [...text.matchAll(/https?:\/\/[^\s"'`)]+/g)].map((m) => m[0]);
     for (const u of found) {
       assert.ok(
-        // gtag; SVG namespaces; the repo's own links (the film's call to action); the
-        // demo's typed example URL (text, never fetched).
+        // gtag; SVG namespaces; the repo's own links (the film's call to action, and the
+        // page's links in i18n.js's strings); the demo's typed example URL (text, never fetched).
         u.startsWith("https://www.googletagmanager.com/gtag/js") ||
           /w3\.org/.test(u) ||
           /^https:\/\/github\.com\/h1994st\/my-resume(\/generate)?$/.test(u) ||
+          (file === "i18n.js" &&
+            /^https:\/\/github\.com\/h1994st\/my-resume\/blob\/main\//.test(u)) ||
           u.startsWith("https://example.com/"),
         `${file}: unexpected absolute URL ${u}`,
       );

@@ -18,8 +18,12 @@
 // motion (style.css).
 //
 // initPage() → Promise, resolved once everything is set up (window.__page = { ready: true }).
+// refreshPage() → Promise: after a language change (i18n.js has put the new strings and data-note
+// texts in place), every drawn group is drawn again at once in the new language, once its pen
+// font is loaded; groups still waiting draw in it when they come into view.
 
 import { createCat } from "./cast.js";
+import { loadLangFonts } from "./i18n.js";
 import { mark, markInstant, note, noteInstant } from "./pen.js";
 
 const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
@@ -105,7 +109,6 @@ const ANIMATED = { mark, note };
 const INSTANT = { mark: markInstant, note: noteInstant };
 
 function createGroup(el) {
-  const steps = strokes(el);
   let drawn = []; // the marks and notes on the page
   let abort = null;
   el.dataset.penState = "waiting";
@@ -118,6 +121,7 @@ function createGroup(el) {
   };
   const draw = async (animate) => {
     clear();
+    const steps = strokes(el); // read now: the language may have changed the text
     if (!animate) {
       for (const step of steps) drawn.push(step(INSTANT, {}));
       el.dataset.penState = "drawn";
@@ -144,11 +148,19 @@ async function fontsReady() {
     await Promise.all([
       document.fonts.load("400 24px Caveat"),
       document.fonts.load("600 24px Caveat"),
+      loadLangFonts(),
       document.fonts.ready,
     ]);
   } catch {
     // Fallback handwriting still draws.
   }
+}
+
+let groups = [];
+
+export async function refreshPage() {
+  await fontsReady();
+  for (const g of groups) if (g.seen()) g.draw(false);
 }
 
 export async function initPage() {
@@ -157,7 +169,7 @@ export async function initPage() {
   }
   // Marks measure text: wait for its final fonts.
   await fontsReady();
-  const groups = [...document.querySelectorAll("[data-pen-group]")].map(createGroup);
+  groups = [...document.querySelectorAll("[data-pen-group]")].map(createGroup);
   const byEl = new Map(groups.map((g) => [g.el, g]));
 
   if (reducedMotion.matches) {

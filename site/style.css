@@ -1,6 +1,16 @@
 /* Fonts: the template's own OTFs (SIL OFL), copied to fonts/ by site/assemble.sh, and Caveat
    for the pen (SIL OFL; site/fonts/caveat/OFL.txt): the latin woff2 files of
-   @fontsource/caveat@5.3.0 from jsDelivr, committed, never fetched at runtime. */
+   @fontsource/caveat@5.3.0 from jsDelivr, committed, never fetched at runtime. The Chinese pen
+   writes in LXGW WenKai (SIL OFL; site/fonts/wenkai/OFL.txt): a subset of its Medium weight with
+   only the characters the Chinese strings use (site/fonts/wenkai/subset.sh), fetched only when a
+   Chinese note is drawn. Chinese body text uses the system's CJK fonts after the Latin ones. */
+@font-face {
+  font-family: "LXGW WenKai";
+  src: url("fonts/wenkai/lxgw-wenkai-medium-subset.woff2") format("woff2");
+  font-weight: 400 700; /* one weight for the pen's 400 and 600: never a synthesised bold */
+  font-style: normal;
+  font-display: swap;
+}
 @font-face {
   font-family: "Caveat";
   src: url("fonts/caveat/caveat-latin-400-normal.woff2") format("woff2");
@@ -394,9 +404,19 @@
   --spine: #c3c6cb; /* accent 30% */
   --code-bg: #f7f8f9;
   --title-h: 48px;
-  --ui: "Source Sans 3", "Helvetica Neue", Arial, sans-serif;
-  --serif: "Source Serif 4 SmText", Georgia, serif;
-  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --cjk-sans: "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", "Microsoft YaHei";
+  --cjk-serif: "Songti SC", "Noto Serif CJK SC", "Noto Serif SC";
+  --ui: "Source Sans 3", "Helvetica Neue", Arial, var(--cjk-sans), sans-serif;
+  --serif: "Source Serif 4 SmText", Georgia, var(--cjk-serif), serif;
+  --mono:
+    ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", var(--cjk-sans),
+    monospace;
+  --pen-font: "Caveat", "Bradley Hand", "Segoe Print", cursive;
+}
+/* Chinese handwriting: WenKai for every character (its own Latin too, so a note reads as one
+   hand), Caveat behind it. */
+:root:lang(zh) {
+  --pen-font: "LXGW WenKai", "Caveat", "Kaiti SC", "STKaiti", cursive;
 }
 /* Dark: the system's choice unless the user picked light, or the user's pick (theme.js). Keep
    the two blocks the same. */
@@ -497,7 +517,8 @@ a:hover {
 .site-title a {
   margin-left: auto;
 }
-.theme-toggle {
+.theme-toggle,
+.lang-toggle {
   position: relative;
   display: inline-flex;
   align-items: center;
@@ -519,8 +540,13 @@ a:hover {
   stroke-width: 1.6;
   stroke-linejoin: round;
 }
-.theme-toggle:hover {
+.theme-toggle:hover,
+.lang-toggle:hover {
   background: var(--tint);
+}
+/* Names the language it switches to: "中文" or "EN". */
+.lang-toggle {
+  padding: 0 12px;
 }
 .theme-toggle[aria-pressed="true"] {
   border-color: var(--ink);
@@ -538,10 +564,24 @@ a:hover {
   clip-path: inset(50%);
   white-space: nowrap;
 }
-.theme-toggle::after {
+.theme-toggle::after,
+.lang-toggle::after {
   content: "";
   position: absolute;
   inset: -7px -4px; /* a 44px target */
+}
+/* While a Chinese page waits for i18n.js (the head script set data-lang), the English it
+   replaces stays hidden; should i18n.js never run, the English shows after 2.5 s after all. */
+:root[data-lang="zh"]:not(.i18n-ready) [data-i18n] {
+  animation: i18n-wait 0s 2.5s both;
+}
+@keyframes i18n-wait {
+  from {
+    visibility: hidden;
+  }
+  to {
+    visibility: visible;
+  }
 }
 
 /* The film (film.js, camera.js, scenes.js) fills the window under the title line: a viewport onto
@@ -640,6 +680,13 @@ a:hover {
   font: 600 clamp(26px, 2.2vw + 12px, 68px) / 1.08 var(--serif);
   letter-spacing: -0.015em;
   text-wrap: balance;
+}
+/* Chinese wraps at its punctuation and spaces, not between any two characters ("一份" stays
+   whole); a phrase too long for the line still breaks. */
+.film-line:lang(zh) {
+  letter-spacing: 0;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
 }
 /* The emphasised word, as if run over with a highlighter. */
 .film-line em {
@@ -1305,11 +1352,7 @@ pre .c {
 /* Handwriting that is page text, not a pen note. */
 .hand {
   color: var(--pen-desk);
-  font:
-    600 26px/1.15 "Caveat",
-    "Bradley Hand",
-    "Segoe Print",
-    cursive;
+  font: 600 26px/1.15 var(--pen-font);
 }
 
 /* The real pages: papers side by side on the desk; a swipeable row on phones. */
@@ -1336,11 +1379,7 @@ pre .c {
 .sheets figcaption {
   margin-top: 12px;
   color: var(--pen-desk);
-  font:
-    600 24px/1.1 "Caveat",
-    "Bradley Hand",
-    "Segoe Print",
-    cursive;
+  font: 600 24px/1.1 var(--pen-font);
   rotate: -1.5deg;
   transform-origin: left;
 }
@@ -1665,9 +1704,16 @@ pre.error,
 }
 .cast-list .hand {
   margin-top: 10px;
-  font-family: "Caveat", "Bradley Hand", "Segoe Print", cursive;
+  font-family: var(--pen-font);
   font-size: min(24px, 6vw);
   line-height: 1.15;
+  white-space: nowrap;
+}
+/* The Chinese name sum is two underlined halves: on a phone the second goes on a line of its own. */
+.cast-list .hand:lang(zh) {
+  white-space: normal;
+}
+.cast-list .hand:lang(zh) > span {
   white-space: nowrap;
 }
 .site-foot .fine {
@@ -2224,7 +2270,7 @@ pre.error,
   position: absolute;
   margin: 0;
   color: var(--pen-desk);
-  font-family: "Caveat", "Bradley Hand", "Segoe Print", cursive;
+  font-family: var(--pen-font);
   line-height: 1.05;
   white-space: pre;
   pointer-events: none;

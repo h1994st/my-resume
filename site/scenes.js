@@ -1,6 +1,10 @@
 // The launch film's scenes (played by film.js): the actors on the desk, the cue kinds, and the
 // storyline as data. film.js documents the contract (scene, step, shot, cue, and actor shapes);
 // this file fills it. Adding a scene is data, plus a cue or actor kind if it needs a new one.
+// The words are in i18n.js: a scene's name, caption, and transcript (by its id), and the notes,
+// Claude's replies, and the links, read through getters, so a frame built again after a
+// language change (film.relang) is in the new language. The documents on the desk (the replica,
+// the copies, the posting, the stamp) and the commands in the terminal stay English.
 //
 // World units are CSS px of the desk at scale 1: a resume page is 816 × 1056. Positions `at` are
 // { x, y, w?, h?, r? (deg), z? }. The pen writes in the world (desk ink) or, with `on: actorId`,
@@ -47,6 +51,7 @@
 //   wait { ms }
 
 import { createCat } from "./cast.js";
+import { t } from "./i18n.js";
 import { clearPen, mark, markInstant, note, noteInstant } from "./pen.js";
 import { createResume } from "./resume.js";
 import { createTerminal } from "./terminal.js";
@@ -170,6 +175,7 @@ export const ACTORS = {
   copy: {
     create({ headline = "" }) {
       const el = h("div", "copy");
+      el.lang = "en";
       el.innerHTML = `<div class="copy-sheet" data-paper>
           <div class="copy-top">
             <div><div class="copy-name">Duna Feline</div><div class="copy-headline">${esc(headline)}</div></div>
@@ -199,6 +205,7 @@ export const ACTORS = {
       let el = ctx.cache.get(key);
       if (!el) {
         el = h("div", "sheet-stack");
+        el.lang = "en";
         el.dataset.paper = "";
         el.dataset.penLayer = "";
         el.resume = createResume(el);
@@ -235,6 +242,7 @@ export const ACTORS = {
   posting: {
     create() {
       const el = h("article", "posting");
+      el.lang = "en";
       el.dataset.paper = "";
       el.dataset.penLayer = "";
       el.innerHTML = `<p class="posting-org"><span class="posting-logo" aria-hidden="true">${WHEAT}</span>Granary &amp; Sons · Careers</p>
@@ -336,6 +344,7 @@ export const ACTORS = {
   stamp: {
     create({ text = [] }) {
       const el = h("div", "stamp");
+      el.lang = "en";
       el.innerHTML = `<span class="stamp-paw">${PAW}</span><span class="stamp-text">${text
         .map((t) => `<span>${esc(t)}</span>`)
         .join("")}</span>`;
@@ -880,27 +889,53 @@ const SETUP = [
   { t: "tool", name: "Write", arg: "…/jd.md" },
   { t: "result", text: "Wrote 37 lines to …/jd.md" },
 ];
+// Claude's replies (and Duna's answer) follow the page's language; the evidence column quotes
+// her resume, which stays English.
+const EVIDENCE = [
+  "Monitored 400+ birds a day (Sunbeam)",
+  "Chirping alerts in under 2 seconds",
+  "Inspected 1,200 boxes (Cardboard)",
+  "Mentored two younger cats",
+  "ACWS 2019, Best Paper",
+];
 const PLAN = [
-  { t: "say", text: "JD signals, mapped to evidence in canonical:" },
+  {
+    t: "say",
+    get text() {
+      return t("term.plan.intro");
+    },
+  },
   {
     t: "table",
-    head: ["JD signal", "Evidence", "Change"],
-    rows: [
-      [
-        "Night patrol, early rodent detection",
-        "Monitored 400+ birds a day (Sunbeam)",
-        "Lead with it",
-      ],
-      ["Fast response, incident reporting", "Chirping alerts in under 2 seconds", "Summary"],
-      ["Box inventory inspection", "Inspected 1,200 boxes (Cardboard)", "Keep first"],
-      ["Training younger cats", "Mentored two younger cats", "Move up"],
-      ["Rodent-detection research", "ACWS 2019, Best Paper", "Keep only this paper"],
-    ],
+    get head() {
+      return t("term.plan.head");
+    },
+    get rows() {
+      return EVIDENCE.map((e, i) => [
+        t(`term.plan.signal.${i + 1}`),
+        e,
+        t(`term.plan.change.${i + 1}`),
+      ]);
+    },
   },
-  { t: "say", text: "To fit one page: drop Service, Honors, two projects, and three papers." },
+  {
+    t: "say",
+    get text() {
+      return t("term.plan.fit");
+    },
+  },
 ];
 const APPROVE = [
-  { t: "ask", question: "Proceed with this plan?", options: ["Yes", "Adjust the plan"], pick: 0 },
+  {
+    t: "ask",
+    get question() {
+      return t("term.approve.question");
+    },
+    get options() {
+      return t("term.approve.options");
+    },
+    pick: 0,
+  },
 ];
 // Scene 8 (a demo step: this role is not in the repo). Claude asks for every date it writes.
 const UPDATE_ASK = [
@@ -908,13 +943,18 @@ const UPDATE_ASK = [
   { t: "spin", text: "Purring", ms: 1000 },
   {
     t: "say",
-    text: "What is the start date (YYYY-MM) and location, and when did your Sunbeam role end?",
+    get text() {
+      return t("term.update.ask");
+    },
   },
 ];
+// Her answer is free text, in her language (the bullet is for the English resume).
 const UPDATE_ANSWER = [
   {
     t: "prompt",
-    text: "2026-11, the grain warehouse; Sunbeam ended 2026-10. First bullet: patrols 40 tons of grain on night shifts",
+    get text() {
+      return t("term.update.answer");
+    },
   },
 ];
 const UPDATE_WRITE = [
@@ -924,15 +964,20 @@ const UPDATE_WRITE = [
   { t: "result", text: "Updated canonical/resume.tex with 3 additions" },
 ];
 
+// A scene's name, caption, and transcript, from i18n.js by its id, in the page's language.
+function localized(scene) {
+  for (const field of ["name", "caption", "transcript"]) {
+    Object.defineProperty(scene, field, {
+      get: () => t(`scene.${scene.id}.${field}`),
+      enumerable: true,
+    });
+  }
+  return scene;
+}
+
 export const SCENES = [
   {
     id: "problem",
-    name: "The problem",
-    caption: "Every job wants a *different* resume.",
-    transcript: [
-      "Three copies of one resume lie on the desk: resume_v2.pdf, resume_final.pdf, and resume_FINAL_v3.pdf, each with a different headline.",
-      "A pen note asks: which one is true? Duna, a gray tabby, swats the newest copy off the pile.",
-    ],
     steps: [
       {
         shot: {
@@ -970,7 +1015,9 @@ export const SCENES = [
           {
             do: "note",
             id: "which",
-            text: "which one is true? 🙀",
+            get text() {
+              return t("note.which");
+            },
             at: { x: 640, y: -128 },
             size: 76,
             rotate: -3,
@@ -998,12 +1045,6 @@ export const SCENES = [
   },
   {
     id: "meet",
-    name: "Meet Duna",
-    caption: "Meet Duna.",
-    transcript: [
-      "Duna’s canonical resume: two pages with every role, project, paper, and award she has, each fact written once and cited by key.",
-      "She waves: hi, I’m Duna. The camera moves in on one role header, Head of Windowsill Operations at Sunbeam Estates.",
-    ],
     steps: [
       {
         // Pull back: both pages, and Duna.
@@ -1040,7 +1081,9 @@ export const SCENES = [
           {
             do: "note",
             id: "hi",
-            text: "hi, I’m Duna 👋",
+            get text() {
+              return t("note.hi");
+            },
             at: { x: -590, y: 556 },
             size: 68,
             rotate: -4,
@@ -1053,7 +1096,9 @@ export const SCENES = [
           {
             do: "note",
             id: "complete",
-            text: "one complete resume",
+            get text() {
+              return t("note.complete");
+            },
             at: { x: 520, y: -160 },
             // Upright: under page 1, inside the pull-back and off the push onto the role.
             portrait: { at: { x: 120, y: 1110 } },
@@ -1095,7 +1140,9 @@ export const SCENES = [
           {
             do: "note",
             id: "once",
-            text: "every fact\nwritten once",
+            get text() {
+              return t("note.once");
+            },
             at: ROLE,
             side: "left",
             gap: 170,
@@ -1119,12 +1166,6 @@ export const SCENES = [
   },
   {
     id: "job",
-    name: "The job",
-    caption: "Then the *dream job* shows up.",
-    transcript: [
-      "A posting: Senior Mouser, Rodent Operations, at Granary & Sons. Night patrol, early detection, box inspection, and training the barn’s younger cats; published research on rodent detection preferred.",
-      "The pen circles what it asks for, and Duna jumps for joy: THE dream job.",
-    ],
     steps: [
       {
         shot: { target: { x: 2540, y: -40, w: 1000, h: 1060 } },
@@ -1179,7 +1220,9 @@ export const SCENES = [
           {
             do: "note",
             id: "dream",
-            text: "THE dream job 😻",
+            get text() {
+              return t("note.dream");
+            },
             at: { x: 2590, y: 912 },
             size: 78,
             rotate: -3,
@@ -1191,12 +1234,6 @@ export const SCENES = [
   },
   {
     id: "prompt",
-    name: "The prompt",
-    caption: "She asks Claude to *tailor* it.",
-    transcript: [
-      "Duna types one line into Claude Code: /customize-resume https://example.com/careers/senior-mouser.",
-      "Claude fetches the posting (Received 2.1KB, 200 OK), runs just new granary senior-mouser, which creates applications/2026-09-granary-senior-mouser, and writes 37 lines to jd.md, the job description summary.",
-    ],
     steps: [
       {
         // The camera travels on to a terminal card beside the posting.
@@ -1244,7 +1281,9 @@ export const SCENES = [
           {
             do: "note",
             id: "paw",
-            text: "one line. one paw. 🐾",
+            get text() {
+              return t("note.paw");
+            },
             at: INPUT_A,
             side: "below",
             gap: 34,
@@ -1269,12 +1308,6 @@ export const SCENES = [
   },
   {
     id: "plan",
-    name: "The plan",
-    caption: "Claude *asks first*.",
-    transcript: [
-      "Claude maps the job’s signals to evidence already in her resume: night patrol and early rodent detection to monitoring 400+ birds a day at Sunbeam (lead with it); fast response to chirping alerts in under 2 seconds (summary); box inventory inspection to 1,200 boxes inspected at Cardboard (keep first); training younger cats to mentoring two younger cats (move up); rodent-detection research to ACWS 2019, Best Paper (keep only this paper).",
-      "To fit one page it would drop Service, Honors, two projects, and three papers. It asks: Proceed with this plan? Duna slow-blinks and picks 1. Yes. A pen note: asks first, no fibs.",
-    ],
     steps: [
       {
         // Duna and the card (a rect: after a jump the card isn't on the desk yet).
@@ -1322,7 +1355,9 @@ export const SCENES = [
           {
             do: "note",
             id: "fibs",
-            text: "asks first. no fibs. 🐟",
+            get text() {
+              return t("note.fibs");
+            },
             at: INPUT_A,
             side: "below",
             gap: 34,
@@ -1336,12 +1371,6 @@ export const SCENES = [
   },
   {
     id: "tailor",
-    name: "Tailoring",
-    caption: "The resume *rewrites itself*.",
-    transcript: [
-      "Back at her resume, the pen strikes the 5 a.m. breakfast and dog-treaty bullets (the dog stays off this one) and the Service and Honors sections.",
-      "The resume rewrites itself into the Granary variant: a new headline, bird monitoring moved up to the first bullet, mentoring after it, and two pages folded into one.",
-    ],
     steps: [
       {
         // Back to the replica; Duna bounds in to watch.
@@ -1409,7 +1438,9 @@ export const SCENES = [
           {
             do: "note",
             id: "dog",
-            text: "the dog stays\noff this one 🐶",
+            get text() {
+              return t("note.dog");
+            },
             at: { x: DOG_NOTE.x, y: DOG_NOTE.y },
             portrait: { at: { x: DOG_NOTE_PORTRAIT.x, y: DOG_NOTE_PORTRAIT.y } },
             size: 56,
@@ -1482,7 +1513,9 @@ export const SCENES = [
           {
             do: "note",
             id: "up",
-            text: "moved up!",
+            get text() {
+              return t("note.up");
+            },
             at: { x: UP_NOTE.x, y: UP_NOTE.y },
             portrait: { at: { x: UP_NOTE_PORTRAIT.x, y: UP_NOTE_PORTRAIT.y } },
             size: 56,
@@ -1505,12 +1538,6 @@ export const SCENES = [
   },
   {
     id: "ship",
-    name: "Shipped",
-    caption: "One page. *Tagged*. Sent.",
-    transcript: [
-      "One page. The replica gives way to the real PDF, built by CI from this commit.",
-      "Nangnang, a brown tabby, stamps the git tag submitted/2026-09-granary-senior-mouser with her paw: checking out the tag and building it gives back exactly what was sent.",
-    ],
     steps: [
       {
         // The real PDF, from this commit.
@@ -1542,7 +1569,9 @@ export const SCENES = [
           {
             do: "note",
             id: "real",
-            text: "the real PDF,\nfrom this commit",
+            get text() {
+              return t("note.real");
+            },
             at: { x: REAL_NOTE.x, y: REAL_NOTE.y },
             portrait: { at: { x: REAL_NOTE_PORTRAIT.x, y: REAL_NOTE_PORTRAIT.y } },
             size: 64,
@@ -1609,13 +1638,6 @@ export const SCENES = [
   },
   {
     id: "update",
-    name: "The update",
-    caption: "She got the *job*. 🎉",
-    transcript: [
-      "Duna types /update-resume Got the job: Senior Mouser at Granary & Sons. Claude asks before it writes any date: What is the start date (YYYY-MM) and location, and when did your Sunbeam role end?",
-      "She answers: 2026-11, the grain warehouse; Sunbeam ended 2026-10. First bullet: patrols 40 tons of grain on night shifts. A pen note: asks, never guesses.",
-      "Claude updates common/facts/roles.tex and canonical/resume.tex, and the new role, Senior Mouser at Granary & Sons, Nov 2026 – Present, lands on top of her experience. Dudu, a gray cat, cheers; confetti falls; Duna jumps for joy.",
-    ],
     steps: [
       {
         // A new session: the card comes in beside Duna.
@@ -1666,7 +1688,9 @@ export const SCENES = [
           {
             do: "note",
             id: "asks",
-            text: "asks, never guesses",
+            get text() {
+              return t("note.asks");
+            },
             at: INPUT_A,
             side: "below",
             gap: 34,
@@ -1759,11 +1783,6 @@ export const SCENES = [
   },
   {
     id: "cta",
-    name: "Make it yours",
-    caption: "Make it *yours*.",
-    transcript: [
-      "Use this template on GitHub to start your own: free, MIT licensed, no cats required. Duna waves goodbye.",
-    ],
     steps: [
       {
         // Wide on the whole desk; a phone keeps to Duna and the note.
@@ -1793,11 +1812,18 @@ export const SCENES = [
             do: "cta",
             links: [
               {
-                text: "Use this template",
+                get text() {
+                  return t("cta.template");
+                },
                 href: "https://github.com/h1994st/my-resume/generate",
                 primary: true,
               },
-              { text: "GitHub", href: "https://github.com/h1994st/my-resume" },
+              {
+                get text() {
+                  return t("cta.github");
+                },
+                href: "https://github.com/h1994st/my-resume",
+              },
             ],
             wait: false,
             delay: 300,
@@ -1805,7 +1831,9 @@ export const SCENES = [
           {
             do: "note",
             id: "free",
-            text: "free, MIT,\nno cats required 🐾",
+            get text() {
+              return t("note.free");
+            },
             at: { x: -1040, y: 520 },
             size: 68,
             rotate: -3,
@@ -1816,4 +1844,4 @@ export const SCENES = [
       },
     ],
   },
-];
+].map(localized);

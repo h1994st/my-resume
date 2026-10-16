@@ -4,14 +4,16 @@
 // createFilm({ scenes, cues, actors, root, onEvent }) → film
 //   { play(), pause(), toggle(), next(), prev(), goTo(n), interact(method), renderEnd(n),
 //     renderStep(n, k) (step k's end frame, for tests), shot() (the shot on screen: { target,
-//     rect }), ready, scene, step, playing, animating,
-//     seen, inView, busy, actor(id), focus(), camera, world, sceneCount, speed (the test-only
-//     ?speed, speed.js) }
+//     rect }), relang() (after a language change: see below), ready, scene, step, playing,
+//     animating, seen, inView, busy, actor(id), focus(), camera, world, sceneCount, speed (the
+//     test-only ?speed, speed.js) }
 // `n` and `scene` are 0-based indexes into `scenes`; events count scenes from 1.
 //
 // ## The scene contract (scenes.js fills it)
 //
 // scenes: [{ id, name, caption, transcript?, steps: [{ shot?, cues, hold? }] }]
+//   Text in scenes and cues is read when it is shown, so it can follow the page's language
+//   (scenes.js reads it from i18n.js); the controls' own labels come from i18n.js too.
 //   id        the scene's name in events (act_name), e.g. "problem"
 //   name      its chapter name: the controls say "Scene N: name"
 //   caption   the big line over the film; *word* marks the word the highlighter picks out; an
@@ -90,11 +92,17 @@
 // caption and the world are aria-hidden: a visually hidden transcript lists every scene, and a
 // polite live region names each scene as it starts.
 //
+// relang() → Promise: the page's language changed (i18n.js). Once the language's pen font is
+// loaded, the controls, the transcript, and the caption are relabelled and the frame on screen is
+// built again in it: the same scene and step (a step in flight ends at once, as on a pause, and
+// playback goes on from the next one). Not a viewer action: no "interact" event.
+//
 // onEvent(name, params): "interact" { method: play|step|chapter|key|swipe } on each user action,
 // "act" { act, act_name } each time a scene is entered, "complete" { method: autoplay|manual }
 // when the last scene is entered.
 
 import { createCamera, offsetRect } from "./camera.js";
+import { loadLangFonts, t } from "./i18n.js";
 import { SPEED } from "./speed.js";
 
 const HOLD = 1600;
@@ -180,30 +188,23 @@ export function createFilm({ scenes, cues, actors, root, onEvent = () => {} }) {
       <p class="film-kicker"><span class="film-num"></span><span class="film-name"></span></p>
       <p class="film-line"></p>
     </div>
-    <div class="film-controls" role="group" aria-label="Film controls" data-no-swipe>
+    <div class="film-controls" role="group" data-no-swipe>
       <div class="fc-buttons">
-        <button type="button" class="fc-btn" data-ctl="prev" aria-label="Previous scene">${icon("prev")}</button>
-        <button type="button" class="fc-btn fc-play" data-ctl="play" aria-label="Play">${icon("play")}</button>
-        <button type="button" class="fc-btn" data-ctl="next" aria-label="Next scene">${icon("next")}</button>
+        <button type="button" class="fc-btn" data-ctl="prev">${icon("prev")}</button>
+        <button type="button" class="fc-btn fc-play" data-ctl="play">${icon("play")}</button>
+        <button type="button" class="fc-btn" data-ctl="next">${icon("next")}</button>
       </div>
       <ol class="fc-chapters">${scenes
         .map(
           (s, i) =>
-            `<li><button type="button" class="fc-seg" data-scene="${i + 1}" aria-label="Scene ${i + 1}: ${esc(s.name)}"><span class="fc-bar"><span class="fc-fill"></span></span><span class="fc-tip" aria-hidden="true">${i + 1} · ${esc(s.name)}</span></button></li>`,
+            `<li><button type="button" class="fc-seg" data-scene="${i + 1}"><span class="fc-bar"><span class="fc-fill"></span></span><span class="fc-tip" aria-hidden="true"></span></button></li>`,
         )
         .join("")}</ol>
-      <span class="fc-label" title="A scripted replay of the workflow, not live output">replay</span>
+      <span class="fc-label"></span>
     </div>
     <div class="visually-hidden">
-      <h2>What the film shows</h2>
-      <ol>${scenes
-        .map(
-          (s, i) =>
-            `<li>Scene ${i + 1}, ${esc(s.name)}: ${esc(plain(s.caption))}${(s.transcript ?? [])
-              .map((t) => ` ${esc(t)}`)
-              .join("")}</li>`,
-        )
-        .join("")}</ol>
+      <h2></h2>
+      <ol></ol>
     </div>
     <p class="visually-hidden" aria-live="polite" data-film-live></p>`;
 
@@ -218,6 +219,41 @@ export function createFilm({ scenes, cues, actors, root, onEvent = () => {} }) {
     play: controls.querySelector('[data-ctl="play"]'),
     segs: [...controls.querySelectorAll(".fc-seg")],
   };
+
+  // The controls' labels, their tooltips, and the transcript, in the page's language.
+  function label() {
+    controls.setAttribute("aria-label", t("film.controls"));
+    controls.querySelector('[data-ctl="prev"]').setAttribute("aria-label", t("film.prev"));
+    controls.querySelector('[data-ctl="next"]').setAttribute("aria-label", t("film.next"));
+    ui.play.setAttribute("aria-label", t(playing ? "film.pause" : "film.play"));
+    ui.segs.forEach((seg, i) => {
+      const { name } = scenes[i];
+      seg.setAttribute("aria-label", t("film.chapter", { n: i + 1, name }));
+      seg.querySelector(".fc-tip").textContent = `${i + 1} · ${name}`;
+    });
+    const tag = controls.querySelector(".fc-label");
+    tag.textContent = t("film.replay");
+    tag.title = t("film.replayTitle");
+    const transcript = root.querySelector(".visually-hidden");
+    transcript.querySelector("h2").textContent = t("film.transcriptTitle");
+    transcript.querySelector("ol").innerHTML = scenes
+      .map((s, i) => {
+        const line = t("film.transcriptItem", {
+          n: i + 1,
+          name: s.name,
+          caption: plain(s.caption),
+        });
+        return `<li>${esc(line)}${(s.transcript ?? []).map((x) => ` ${esc(x)}`).join("")}</li>`;
+      })
+      .join("");
+  }
+  const announcement = (n) =>
+    t("film.live", {
+      n: n + 1,
+      count: scenes.length,
+      name: scenes[n].name,
+      caption: plain(scenes[n].caption),
+    });
 
   // The caption and the controls cover the bottom of the film: the camera frames above them.
   const camera = createCamera(viewport, world, {
@@ -536,7 +572,7 @@ export function createFilm({ scenes, cues, actors, root, onEvent = () => {} }) {
     if (!silent && announced !== n) {
       announced = n;
       emit("act", { act: n + 1, act_name: scenes[n].id });
-      live.textContent = `Scene ${n + 1} of ${scenes.length}, ${scenes[n].name}: ${plain(scenes[n].caption)}`;
+      live.textContent = announcement(n);
     }
     updateUI();
     if (!silent && n === lastScene && from !== lastScene) {
@@ -621,6 +657,30 @@ export function createFilm({ scenes, cues, actors, root, onEvent = () => {} }) {
     updateUI();
   }
 
+  // The page's language changed: the same frame, built again in it (see the header).
+  async function relang() {
+    label();
+    if (!isReady) return; // the first frame, still to come, will be in it
+    await loadLangFonts();
+    label();
+    if (animating) {
+      const inflight = animating;
+      const resume = playing;
+      abort();
+      playing = false;
+      animating = null;
+      renderAt(inflight.scene, inflight.step);
+      cursor = after(inflight);
+      if (resume && cursor) play();
+    } else if (shown) {
+      renderAt(shown.scene, shown.step);
+    } else {
+      setCaption(cur, false); // before autoplay: the empty desk and scene 1's caption
+    }
+    if (live.textContent) live.textContent = announcement(cur);
+    updateUI();
+  }
+
   const toggle = () => (playing ? pause() : play());
   const next = () => goTo(cur + 1);
   const prev = () => goTo(cur - 1);
@@ -649,7 +709,7 @@ export function createFilm({ scenes, cues, actors, root, onEvent = () => {} }) {
     root.classList.toggle("is-playing", playing);
     if (wasPlaying !== playing) {
       ui.play.innerHTML = icon(playing ? "pause" : "play");
-      ui.play.setAttribute("aria-label", playing ? "Pause" : "Play");
+      ui.play.setAttribute("aria-label", t(playing ? "film.pause" : "film.play"));
       wasPlaying = playing;
       showControls();
     }
@@ -802,7 +862,8 @@ export function createFilm({ scenes, cues, actors, root, onEvent = () => {} }) {
     '600 16px "Source Sans 3"',
   ];
   let isReady = false;
-  const ready = Promise.all(fonts.map((f) => document.fonts.load(f)))
+  label();
+  const ready = Promise.all([...fonts.map((f) => document.fonts.load(f)), loadLangFonts()])
     .catch(() => {})
     .then(() => document.fonts.ready)
     .then(() => {
@@ -828,6 +889,7 @@ export function createFilm({ scenes, cues, actors, root, onEvent = () => {} }) {
     interact,
     renderEnd,
     renderStep: renderAt,
+    relang,
     shot: () => (lastShot ? { target: lastShot.target, rect: lastShot.rect } : null),
     ready,
     camera,
