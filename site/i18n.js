@@ -252,7 +252,7 @@ export const STRINGS = {
     "film.transcriptItem": "第 {n} 幕，{name}：{caption}",
     "film.live": "第 {n} 幕（共 {count} 幕），{name}：{caption}",
 
-    "scene.problem.name": "难题",
+    "scene.problem.name": "问题",
     "scene.problem.caption": "每份工作，都想要一份*不一样*的简历。",
     "scene.problem.transcript": [
       "桌上摊着同一份简历的三个副本：resume_v2.pdf、resume_final.pdf 和 resume_FINAL_v3.pdf，每份的头衔都不一样。",
@@ -267,7 +267,7 @@ export const STRINGS = {
     "scene.job.name": "机会",
     "scene.job.caption": "然后，*梦想工作*出现了。",
     "scene.job.transcript": [
-      "一则招聘：Granary & Sons 招 Senior Mouser, Rodent Operations。要夜间巡逻、及早发现鼠情、检查纸箱，还要带粮仓里的小猫；发表过鼠类探测研究者优先。",
+      "一则招聘：Granary & Sons 招 Senior Mouser, Rodent Operations。要夜间巡逻、及早发现鼠情、检查纸箱，还要带粮仓里的小猫；有鼠类探测研究成果者优先。",
       "笔圈出了招聘要的几样，嘟娜高兴得跳了起来：梦中情岗！",
     ],
     "scene.prompt.name": "一行指令",
@@ -297,7 +297,7 @@ export const STRINGS = {
     "scene.update.name": "更新",
     "scene.update.caption": "她*拿到工作*了！🎉",
     "scene.update.transcript": [
-      "嘟娜输入 /update-resume Got the job: Senior Mouser at Granary & Sons。Claude 写下任何日期之前都先问：入职日期（YYYY-MM）和地点是？Sunbeam 那份工作哪个月结束的？",
+      "嘟娜输入 /update-resume Got the job: Senior Mouser at Granary & Sons。Claude 在写任何日期之前先问：入职日期（YYYY-MM）和地点是？Sunbeam 那份工作哪个月结束的？",
       "她回答：2026-11，粮仓；Sunbeam 到 2026-10 结束。第一条写：patrols 40 tons of grain on night shifts。一张笔记写着：问清楚，不瞎猜。",
       "Claude 更新了 common/facts/roles.tex 和 canonical/resume.tex，新职位 Granary & Sons 的 Senior Mouser（Nov 2026 – Present）落在她经历的最上方。灰猫嘟嘟欢呼，彩纸纷飞，嘟娜高兴得跳了起来。",
     ],
@@ -344,7 +344,7 @@ export const STRINGS = {
 
     "template.title": "模板",
     "template.lead":
-      "版式全交给一个类文件，简历文件里只放内容。下面是 CI 从这次提交构建出的真实页面：嘟娜完整的主简历（canonical），以及为一份工作定制的一页版。",
+      "版式全交给一个文档类文件，简历文件里只放内容。下面是 CI 从这次提交构建出的真实页面：嘟娜完整的主简历（canonical），以及为一份工作定制的一页版。",
     "template.page1.alt": "主简历，第 1 页",
     "template.page1.caption": "主简历，第 1 页",
     "template.page2.alt": "主简历，第 2 页",
@@ -362,7 +362,7 @@ export const STRINGS = {
     "tour.spine.alt": "第 1 页特写：两个职位旁的时间线",
     "tour.dates.title": "日期胶囊",
     "tour.dates.text":
-      '日期只写一次，形如 <code>2023-04</code> 或 <code>present</code>；类文件把它印成 <span class="pill">Apr 2023 – Present</span>。',
+      '日期只写一次，形如 <code>2023-04</code> 或 <code>present</code>；文档类文件把它印成 <span class="pill">Apr 2023 – Present</span>。',
     "tour.dates.alt": "第 1 页特写：日期胶囊 Apr 2023 – Present",
     "tour.keys.title": "事实按键引用",
     "tour.keys.text":
@@ -400,7 +400,7 @@ export const STRINGS = {
       "要把它变成你的简历：把你的信息填进 <code>common/profile.tex</code> 和 <code>common/facts/</code>（或者在 Claude Code 里运行 <code>/update-resume</code>，让它来问你），再重写 <code>canonical/resume.tex</code>。要投某份工作时，带上职位描述运行 <code>/customize-resume</code>。",
     "start.repo": "GitHub 上的仓库",
     "start.repo.about": "源码和完整的 README",
-    "start.rules.about": "Claude 遵守的规则，第一条就是：绝不编造或夸大任何经历",
+    "start.rules.about": "Claude 遵守的规则，第一条就是：绝不编造或夸大任何说法",
     "start.customize": "customize-resume 技能",
     "start.customize.about": "按职位描述定制一个版本，并停下来等你批准",
     "start.update": "update-resume 技能",
@@ -408,7 +408,7 @@ export const STRINGS = {
     "credits.title": "演职员表",
     "credits.duna.name": "嘟娜·菲琳",
     "credits.duna.text":
-      "主演，也是示例简历的主人：一只琥珀色眼睛的灰色虎斑猫。嘟娜·菲琳是虚构的。她的名字各取自两位搭档：",
+      "主演，也是示例简历的主人：一只琥珀色眼睛的灰色虎斑猫。嘟娜·菲琳是虚构的。她的名字各取了两位搭档的一半：",
     "credits.duna.name-sum":
       '<span data-pen="underline">嘟娜 = 嘟嘟的“嘟”</span> <span data-pen="underline">+ 囔囔的“na”（娜）</span>',
     "credits.dudu.name": "嘟嘟",
