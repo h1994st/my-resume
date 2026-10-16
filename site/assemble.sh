@@ -31,4 +31,14 @@ cp "$root/applications/2026-09-granary-senior-mouser/resume.pdf" "$out/pdf/tailo
 pdftoppm -png -r 110 "$out/pdf/canonical.pdf" "$out/img/canonical"
 pdftoppm -png -r 110 "$out/pdf/tailored.pdf" "$out/img/tailored"
 
+# The sitemap, stamped with the date of the commit being deployed (shengtuo.me's robots.txt points
+# here). Outside a git checkout it goes out without <lastmod>.
+lastmod=$(git -C "$repo" log -1 --format=%cs 2>/dev/null || true)
+{
+  echo '<?xml version="1.0" encoding="UTF-8"?>'
+  echo '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+  echo "  <url><loc>https://shengtuo.me/my-resume/</loc>${lastmod:+<lastmod>$lastmod</lastmod>}</url>"
+  echo '</urlset>'
+} >"$out/sitemap.xml"
+
 echo "Assembled $out"

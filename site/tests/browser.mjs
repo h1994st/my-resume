@@ -2441,6 +2441,24 @@ test("head: title, description, theme colour, Open Graph image, favicon", async 
   assert.equal(head.og, "https://shengtuo.me/my-resume/img/canonical-1.png");
   assert.equal(head.ogUrl, "https://shengtuo.me/my-resume/");
   assert.match(head.icon ?? "", /^data:image\/svg\+xml,/);
+
+  // SEO: a canonical URL, structured data tied to the homepage's Person, and a sitemap.
+  const seo = await page.eval(() => ({
+    canonical: document.querySelector('link[rel="canonical"]')?.getAttribute("href"),
+    ld: [...document.querySelectorAll('script[type="application/ld+json"]')].map(
+      (s) => s.textContent,
+    ),
+  }));
+  assert.equal(seo.canonical, "https://shengtuo.me/my-resume/");
+  assert.equal(seo.ld.length, 1, "one JSON-LD block");
+  const ld = JSON.parse(seo.ld[0]);
+  assert.equal(ld["@type"], "SoftwareSourceCode");
+  assert.equal(ld.url, "https://shengtuo.me/my-resume/");
+  assert.equal(ld.codeRepository, "https://github.com/h1994st/my-resume");
+  assert.equal(ld.author?.["@id"], "https://shengtuo.me/#person");
+  const sitemap = readFileSync(path.join(SITE, "sitemap.xml"), "utf8");
+  assert.match(sitemap, /<loc>https:\/\/shengtuo\.me\/my-resume\/<\/loc>/);
+  assert.match(sitemap, /<lastmod>\d{4}-\d{2}-\d{2}<\/lastmod>/);
 });
 
 // --- Tests: themes, cast, and pen kit --------------------------------------------------------
@@ -3090,8 +3108,13 @@ test("analytics: a throwing gtag does not stop the demo", async ({ newPage }) =>
 test("no absolute script, stylesheet, or media URLs except Google's gtag", async ({ newPage }) => {
   const page = await newPage();
   await page.goto("/");
+  // rel=canonical names this page's own URL; nothing is fetched from it.
   const urls = await page.eval(() =>
-    [...document.querySelectorAll("script[src], link[href], img[src], source[src], iframe[src]")]
+    [
+      ...document.querySelectorAll(
+        'script[src], link[href]:not([rel="canonical"]), img[src], source[src], iframe[src]',
+      ),
+    ]
       .map((el) => el.getAttribute("src") ?? el.getAttribute("href"))
       .filter((u) => /^(https?:)?\/\//.test(u)),
   );
