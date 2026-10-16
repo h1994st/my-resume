@@ -68,8 +68,10 @@ jobs:
         with:
           node-version: 24
 
-      - name: Install poppler
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq poppler-utils
+      # poppler for the honesty check and the page images; Noto CJK so the Chinese page (?lang=zh)
+      # renders and measures in a real CJK font in the browser tests, not as missing glyphs.
+      - name: Install poppler and CJK fonts
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq poppler-utils fonts-noto-cjk
 
       - name: Honesty check (replica text is in the real PDFs)
         run: site/check.sh pdfs
