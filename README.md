@@ -26,3 +26,16 @@ site/assemble.sh build/site                 # site + fonts + PDFs + page images 
 node site/tests/browser.mjs                 # full tier locally; CI runs the smoke tier
 python3 -m http.server -d build/site 8765   # then open http://127.0.0.1:8765/
 ```
+
+## Languages
+
+The site is in English and Chinese (`?lang=zh` for one visit, or the header toggle). Every string is
+in [`site/i18n.js`](site/i18n.js), one table per language; the resume replica, the PDFs, and the
+terminal's commands and output stay English. The Chinese pen notes use a subset of
+[LXGW WenKai](https://github.com/lxgw/LxgwWenKai) (SIL OFL) with only the characters the Chinese
+strings use. After changing a Chinese string, regenerate it (the browser tests fail until you do):
+
+```bash
+python3 -m venv build/venv && build/venv/bin/pip install fonttools brotli   # once
+PYTHON=build/venv/bin/python site/fonts/wenkai/subset.sh
+```

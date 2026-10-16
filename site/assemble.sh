@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Assembles the static site into <out>: the site files, the site's own fonts (Caveat) and the
-# template's fonts (all with their OFL licenses), the two built PDFs, and PNGs of their pages.
+# Assembles the static site into <out>: the site files, the site's own fonts (Caveat, and the
+# LXGW WenKai subset for Chinese) and the template's fonts (all with their OFL licenses), the
+# two built PDFs, and PNGs of their pages.
 # Usage: site/assemble.sh <out> [pdf-root]  (pdf-root holds canonical/resume.pdf and
 # applications/2026-09-granary-senior-mouser/resume.pdf; default: the template checkout)
 # The template's fonts come from TEMPLATE_DIR, a checkout of main (default: ./template).
@@ -23,6 +24,7 @@ for f in "$here"/*; do
 done
 
 cp -R "$here/fonts/." "$out/fonts/"
+rm "$out/fonts/wenkai/subset.sh" "$out/fonts/wenkai/chars.txt" # how the subset is made
 for family in SourceSans3 SourceSerif4; do
   cp "$template/fonts/$family"/*.otf "$template/fonts/$family/LICENSE.md" "$out/fonts/$family/"
 done
