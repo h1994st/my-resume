@@ -108,7 +108,7 @@ export const STRINGS = {
     "scene.cta.name": "Make it yours",
     "scene.cta.caption": "Make it *yours*.",
     "scene.cta.transcript": [
-      "Use this template on GitHub to start your own: free, MIT licensed, no cats required. Duna waves goodbye.",
+      "Use this template on GitHub to start your own: free, under the MIT License, no cats required. Duna waves goodbye.",
     ],
 
     // The pen's notes in the film ("\n" breaks a line; emoji are decoration).
@@ -123,7 +123,7 @@ export const STRINGS = {
     "note.up": "moved up!",
     "note.real": "the real PDF,\nfrom this commit",
     "note.asks": "asks, never guesses",
-    "note.free": "free, MIT,\nno cats required 🐾",
+    "note.free": "free, MIT License,\nno cats required 🐾",
 
     // Claude's replies in the terminal, and Duna's answer (her commands stay as typed).
     "term.plan.intro": "JD signals, mapped to evidence in canonical:",
@@ -304,7 +304,7 @@ export const STRINGS = {
     "scene.cta.name": "轮到你",
     "scene.cta.caption": "把它变成*你的*。",
     "scene.cta.transcript": [
-      "在 GitHub 上用这个模板，开始写你自己的简历：免费，MIT 许可，无需自备猫。嘟娜挥手道别。",
+      "在 GitHub 上用这个模板，开始写你自己的简历：免费，MIT 许可证，无需自备猫。嘟娜挥手道别。",
     ],
 
     "note.which": "哪份才是真的？🙀",
@@ -318,7 +318,7 @@ export const STRINGS = {
     "note.up": "置顶了！",
     "note.real": "真正的 PDF，\n来自这次提交",
     "note.asks": "问清楚，不瞎猜",
-    "note.free": "免费，MIT，\n无需自备猫 🐾",
+    "note.free": "免费，MIT 许可证，\n无需自备猫 🐾",
 
     "term.plan.intro": "JD 要求与 canonical 中的证据对照：",
     "term.plan.head": ["JD 要求", "证据", "改动"],
